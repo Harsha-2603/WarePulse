@@ -4,7 +4,7 @@ import { isAdmin, hasRole } from '../middleware/authMiddleware.js';
 
 // Helper to safely extract shopId handling different possible auth/request structures
 const extractShopId = (req) => {
-  const id = req.user?.shop_id || req.headers['x-shop-id'] || req.params.shop_id || req.query.shop_id || req.body.shop_id;
+  const id = req.user?.shop_id;
   if (id === '00000000-0000-0000-0000-000000000000') return null;
   return id;
 };

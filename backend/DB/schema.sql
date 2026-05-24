@@ -431,3 +431,120 @@ drop trigger if exists trg_payment_updated_at on payment;
 create trigger trg_payment_updated_at
 before update on payment
 for each row execute function set_updated_at();
+
+-- ==========================================
+-- ROW LEVEL SECURITY (RLS) & TENANT ISOLATION
+-- ==========================================
+
+-- 1. Enable RLS on all tables
+alter table shop enable row level security;
+alter table users enable row level security;
+alter table category enable row level security;
+alter table unit enable row level security;
+alter table product enable row level security;
+alter table inventory enable row level security;
+alter table vendor enable row level security;
+alter table customer enable row level security;
+alter table purchase enable row level security;
+alter table sale enable row level security;
+alter table sale_item enable row level security;
+alter table invoice enable row level security;
+alter table payment enable row level security;
+alter table stock_log enable row level security;
+
+-- 2. Define security-definer helper functions to avoid recursion
+create or replace function public.get_auth_user_shop()
+returns uuid as $$
+  select shop_id from public.users where auth_user_id = auth.uid();
+$$ language sql security definer;
+
+-- 3. Row Level Security Policies for Multi-Tenancy
+
+-- Shop Policy: users can view the shop they belong to, anyone can insert during signup
+create policy shop_select_update_delete on shop
+  for all
+  using (id = public.get_auth_user_shop());
+
+create policy shop_insert on shop
+  for insert
+  with check (true);
+
+-- Users Policy: users can view and edit profiles in their own shop, anyone can insert their own profile
+create policy users_select_update_delete on users
+  for all
+  using (shop_id = public.get_auth_user_shop());
+
+create policy users_insert on users
+  for insert
+  with check (id = auth.uid());
+
+-- Unit Policy: master table read-only for authenticated users
+create policy unit_read_all on unit
+  for select
+  using (true);
+
+-- Category Policy
+create policy category_isolation_policy on category
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Product Policy
+create policy product_isolation_policy on product
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Inventory Policy
+create policy inventory_isolation_policy on inventory
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Vendor Policy
+create policy vendor_isolation_policy on vendor
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Customer Policy
+create policy customer_isolation_policy on customer
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Purchase Policy
+create policy purchase_isolation_policy on purchase
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Sale Policy
+create policy sale_isolation_policy on sale
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Sale Item Policy
+create policy sale_item_isolation_policy on sale_item
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Invoice Policy
+create policy invoice_isolation_policy on invoice
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Payment Policy
+create policy payment_isolation_policy on payment
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());
+
+-- Stock Log Policy
+create policy stock_log_isolation_policy on stock_log
+  for all
+  using (shop_id = public.get_auth_user_shop())
+  with check (shop_id = public.get_auth_user_shop());

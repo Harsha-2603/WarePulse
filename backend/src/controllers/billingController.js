@@ -15,7 +15,7 @@ export const getInvoices = async (req, res) => {
 };
 
 const extractShopId = (req) => {
-  return req.user?.shop_id || req.headers['x-shop-id'] || req.params.shop_id || req.query.shop_id || req.body.shop_id;
+  return req.user?.shop_id;
 };
 
 export const createInvoice = async (req, res) => {
