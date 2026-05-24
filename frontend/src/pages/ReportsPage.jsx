@@ -210,25 +210,45 @@ const ReportsPage = () => {
             <CardTitle>Margins by Variety (%)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="w-full h-[350px] min-h-[350px] mt-4">
-              {marginData && marginData.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={marginData} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+            {marginData && marginData.length > 0 ? (() => {
+              const sortedMargins = [...marginData]
+                .sort((a, b) => b.margin - a.margin)
+                .slice(0, 15);
+              const chartHeight = sortedMargins.length * 45;
+              return (
+                <div
+                  className="w-full mt-4"
+                  style={{ maxHeight: '500px', overflowY: 'auto', paddingRight: '4px' }}
+                >
+                  <BarChart
+                    layout="vertical"
+                    width={340}
+                    height={chartHeight}
+                    data={sortedMargins}
+                    margin={{ top: 10, right: 20, left: 80, bottom: 10 }}
+                  >
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} />
-                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12, fontWeight: 500}} width={90} />
-                    <Tooltip 
-                      cursor={{fill: '#f8fafc'}}
+                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 11 }} />
+                    <YAxis
+                      dataKey="name"
+                      type="category"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: '#475569', fontSize: 11, fontWeight: 500 }}
+                      width={80}
+                    />
+                    <Tooltip
+                      cursor={{ fill: '#f8fafc' }}
                       contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       formatter={(value) => [`${value}%`, 'Margin']}
                     />
-                    <Bar dataKey="margin" name="Profit Margin (%)" fill="#10b981" radius={[0, 4, 4, 0]} barSize={20} />
+                    <Bar dataKey="margin" name="Profit Margin (%)" fill="#10b981" radius={[0, 4, 4, 0]} barSize={18} />
                   </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full items-center justify-center text-slate-400 text-sm">No margin data available</div>
-              )}
-            </div>
+                </div>
+              );
+            })() : (
+              <div className="flex h-[350px] items-center justify-center text-slate-400 text-sm">No margin data available</div>
+            )}
           </CardContent>
         </Card>
 

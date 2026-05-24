@@ -19,8 +19,10 @@ const mapInbound = (c) => ({
   pinCode: c.pin_code || c.pinCode || '',
   gstNumber: c.customer_gst_number || c.gstNumber || c.gst_number || '',
   joinDate: c.join_date || c.joinDate || new Date().toISOString().split('T')[0],
-  totalOrders: Number(c.total_orders || c.totalOrders || 0),
-  totalPurchase: Number(c.total_purchase || c.totalPurchase || 0),
+  total_orders: Number(c.total_orders !== undefined ? c.total_orders : (c.totalOrders !== undefined ? c.totalOrders : 0)),
+  total_spent: Number(c.total_spent !== undefined ? c.total_spent : (c.totalPurchase !== undefined ? c.totalPurchase : 0)),
+  totalOrders: Number(c.total_orders !== undefined ? c.total_orders : (c.totalOrders !== undefined ? c.totalOrders : 0)),
+  totalPurchase: Number(c.total_spent !== undefined ? c.total_spent : (c.totalPurchase !== undefined ? c.totalPurchase : 0)),
   shop_id: c.shop_id
 });
 

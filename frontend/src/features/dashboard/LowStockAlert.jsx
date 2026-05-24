@@ -55,7 +55,7 @@ const LowStockAlert = () => {
           )}
         </div>
         <div className="p-4 sm:px-6 border-t border-slate-100 bg-slate-50 text-center">
-          <Link to="/inventory" className="text-sm font-medium text-primary-600 hover:text-primary-700">Manage Inventory</Link>
+          <Link to="/dashboard/inventory" className="text-sm font-medium text-primary-600 hover:text-primary-700">Manage Inventory</Link>
         </div>
       </CardContent>
     </Card>

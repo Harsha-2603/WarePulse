@@ -34,9 +34,12 @@ const InventoryCard = ({ item, onEdit, onDelete }) => {
   const stockStatus = getStockStatus();
 
   return (
-    <Card className={`relative overflow-hidden transition-all hover:shadow-md ${isLowStock ? 'border-red-200' : ''}`}>
-      {/* Top Color Accent */}
-      <div className={`h-1.5 w-full ${isLowStock ? 'bg-red-500' : 'bg-primary-500'}`} />
+    <Card className={`group relative overflow-hidden transition-all duration-300 hover:shadow-lg ${isLowStock ? 'border-red-200' : ''}`}>
+      {/* Smooth top border hover effect */}
+      <div className="absolute top-0 left-0 h-1 bg-blue-500 w-0 group-hover:w-full transition-all duration-300 ease-in-out z-10" />
+      
+      {/* Top Color Accent (Only for low stock) */}
+      {isLowStock && <div className="h-1.5 w-full bg-red-500" />}
       
       <CardContent className="p-5">
         <div className="flex justify-between items-start mb-4">

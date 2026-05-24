@@ -1,6 +1,7 @@
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { FullPageLoader } from '../components/ui/LoadingSpinner';
+import ProtectedRoute from '../components/ProtectedRoute';
 
 // Layouts
 import DashboardLayout from '../components/layout/DashboardLayout';
@@ -8,6 +9,7 @@ import DashboardLayout from '../components/layout/DashboardLayout';
 // Lazy-loaded Pages
 const LandingPage = lazy(() => import('../pages/LandingPage'));
 const LoginPage = lazy(() => import('../pages/LoginPage'));
+const SignupPage = lazy(() => import('../pages/auth/SignupPage'));
 const DashboardPage = lazy(() => import('../pages/DashboardPage'));
 const InventoryPage = lazy(() => import('../pages/InventoryPage'));
 const CustomersPage = lazy(() => import('../pages/CustomersPage'));
@@ -23,8 +25,17 @@ const AppRoutes = () => {
     <Suspense fallback={<FullPageLoader text="Loading interface..." />}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/dashboard" element={<DashboardLayout />}>
+        <Route path="/login" element={<Navigate to="/signin" replace />} />
+        <Route path="/signin" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route 
+          path="/dashboard" 
+          element={
+            <ProtectedRoute>
+              <DashboardLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route index element={<DashboardPage />} />
           <Route path="inventory" element={<InventoryPage />} />
           <Route path="customers" element={<CustomersPage />} />

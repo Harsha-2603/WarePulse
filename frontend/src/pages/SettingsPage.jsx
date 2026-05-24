@@ -1,11 +1,196 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Store, Image as ImageIcon, Settings, DollarSign, FileText, User, Shield, CreditCard, Palette, Save } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
+import { supabase } from '../lib/supabase';
 
 const SettingsPage = () => {
   const [activeTab, setActiveTab] = useState('shop');
   const [isSaving, setIsSaving] = useState(false);
+
+  const { shop, user, session } = useAuth() || {};
+  const { showToast } = useToast() || {};
+  const [logoUrl, setLogoUrl] = useState(shop?.logo_url || null);
+  const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (shop?.logo_url) {
+      setLogoUrl(shop.logo_url);
+    }
+  }, [shop]);
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    console.log("FILE_SELECTED");
+    console.log("UPLOAD_FUNCTION_CALLED");
+
+    setUploading(true);
+
+    try {
+      if (!session) {
+        console.log("FINAL_ERROR: No active session found");
+        throw new Error("No active session found. Please sign in again.");
+      }
+      console.log("SESSION_FOUND");
+
+      const shopId = shop?.id || user?.shop_id || localStorage.getItem('shopId');
+      if (!shopId) {
+        console.log("FINAL_ERROR: Missing shop ID");
+        throw new Error("Missing shop ID. Could not associate logo.");
+      }
+      console.log("SHOP_ID_FOUND");
+
+      if (!supabase) {
+        console.log("FINAL_ERROR: Supabase client is not initialized correctly");
+        throw new Error("Supabase client is not initialized correctly.");
+      }
+      console.log("SUPABASE_CLIENT_READY");
+
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      if (!supabaseUrl || !supabaseKey) {
+        console.log("FINAL_ERROR: Supabase environment variables are missing");
+        throw new Error("Supabase environment variables are missing.");
+      }
+
+      const allowedTypes = ['image/jpeg', 'image/png', 'image/svg+xml', 'image/webp'];
+      if (!allowedTypes.includes(file.type)) {
+        console.log("FINAL_ERROR: Invalid file type");
+        throw new Error("Invalid file type. Only SVG, PNG, JPG, or WEBP are allowed.");
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        console.log("FINAL_ERROR: File size exceeds 2MB limit");
+        throw new Error("File size exceeds 2MB limit.");
+      }
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = `${shopId}/${fileName}`;
+
+      const { data, error } = await supabase.storage
+        .from('shop-logos')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+        });
+
+      if (error) {
+        console.error("Supabase Storage Upload failed:", error.message);
+        console.log("FINAL_ERROR: " + error.message);
+        
+        if (error.message.includes('Bucket not found') || error.status === 404) {
+          throw new Error("Storage bucket 'shop-logos' not found. Please create it in your Supabase dashboard.");
+        } else if (error.status === 401 || error.status === 403) {
+          throw new Error("Unauthorized storage upload. Please configure RLS policies.");
+        } else {
+          throw error;
+        }
+      }
+
+      console.log("UPLOAD_RESPONSE");
+
+      const { data: publicUrlData } = supabase.storage
+        .from('shop-logos')
+        .getPublicUrl(filePath);
+
+      const publicUrl = publicUrlData?.publicUrl;
+      if (!publicUrl) {
+        console.log("FINAL_ERROR: Failed to generate public URL");
+        throw new Error("Failed to generate public URL from storage.");
+      }
+      console.log("PUBLIC_URL_CREATED");
+
+      const { error: dbError } = await supabase
+        .from('shop')
+        .update({ logo_url: publicUrl })
+        .eq('id', shopId);
+
+      if (dbError) {
+        console.error("Database logo_url update failed:", dbError.message);
+        console.log("FINAL_ERROR: " + dbError.message);
+        throw new Error(`Failed to update logo URL in database: ${dbError.message}`);
+      }
+
+      console.log("DATABASE_UPDATED");
+
+      setLogoUrl(publicUrl);
+      if (showToast) {
+        showToast('Logo uploaded successfully!', 'success');
+      }
+
+    } catch (err) {
+      console.error("Logo upload process failed:", err.message);
+      console.log("FINAL_ERROR: " + err.message);
+      if (showToast) {
+        showToast(err.message, 'error');
+      } else {
+        alert(err.message);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    if (!window.confirm("Are you sure you want to remove the shop logo?")) return;
+
+    setUploading(true);
+
+    try {
+      if (!session) {
+        throw new Error("No active session found. Please sign in again.");
+      }
+
+      const shopId = shop?.id || user?.shop_id || localStorage.getItem('shopId');
+      if (!shopId) {
+        throw new Error("Missing shop ID.");
+      }
+
+      const { error: dbError } = await supabase
+        .from('shop')
+        .update({ logo_url: null })
+        .eq('id', shopId);
+
+      if (dbError) {
+        console.error("Database logo_url deletion failed:", dbError.message);
+        throw new Error(`Failed to remove logo from database: ${dbError.message}`);
+      }
+
+      if (logoUrl) {
+        const urlParts = logoUrl.split('/shop-logos/');
+        if (urlParts.length > 1) {
+          const storagePath = decodeURIComponent(urlParts[1]);
+          const { error: storageError } = await supabase.storage
+            .from('shop-logos')
+            .remove([storagePath]);
+
+          if (storageError) {
+            console.warn("Storage logo deletion warning:", storageError.message);
+          }
+        }
+      }
+
+      setLogoUrl(null);
+      if (showToast) {
+        showToast('Logo removed successfully.', 'success');
+      }
+
+    } catch (err) {
+      console.error("Logo removal process failed:", err.message);
+      if (showToast) {
+        showToast(err.message, 'error');
+      } else {
+        alert(err.message);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
 
   // Mock settings state
   const [settings, setSettings] = useState({
@@ -150,22 +335,49 @@ const SettingsPage = () => {
               <div className="max-w-2xl space-y-6">
                 <p className="text-sm text-slate-500">This logo will appear in your top navigation and on all generated invoices.</p>
                 <div className="flex items-center justify-center w-full mt-4">
-                  <label htmlFor="dropzone-file" className="flex flex-col items-center justify-center w-full h-64 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                  <label htmlFor="dropzone-file" className={`flex flex-col items-center justify-center w-full h-64 border-2 border-slate-300 border-dashed rounded-xl cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors ${uploading ? 'opacity-50 cursor-not-allowed' : ''}`}>
                     <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                      <ImageIcon className="w-10 h-10 mb-3 text-slate-400" />
-                      <p className="mb-2 text-sm text-slate-600"><span className="font-semibold">Click to upload</span> or drag and drop</p>
+                      {uploading ? (
+                        <div className="w-10 h-10 mb-3 rounded-full border-2 border-primary-300 border-t-primary-600 animate-spin" />
+                      ) : (
+                        <ImageIcon className="w-10 h-10 mb-3 text-slate-400" />
+                      )}
+                      <p className="mb-2 text-sm text-slate-600">
+                        <span className="font-semibold">{uploading ? 'Uploading...' : 'Click to upload'}</span> or drag and drop
+                      </p>
                       <p className="text-xs text-slate-500">SVG, PNG, JPG or WEBP (MAX. 2MB)</p>
                     </div>
-                    <input id="dropzone-file" type="file" className="hidden" />
+                    <input 
+                      id="dropzone-file" 
+                      type="file" 
+                      accept="image/png, image/jpeg, image/svg+xml, image/webp" 
+                      className="hidden" 
+                      onChange={handleLogoUpload}
+                      disabled={uploading}
+                    />
                   </label>
                 </div>
                 <div className="flex items-center gap-4 p-4 border border-slate-200 rounded-lg bg-white mt-6">
-                  <div className="p-3 bg-primary-50 text-primary-600 rounded-lg">
-                    <Store className="w-8 h-8" />
+                  <div className="p-3 bg-primary-50 text-primary-600 rounded-lg w-14 h-14 flex items-center justify-center overflow-hidden shrink-0 border border-slate-100">
+                    {logoUrl ? (
+                      <img src={logoUrl} alt="Shop Logo" className="w-full h-full object-contain" />
+                    ) : (
+                      <Store className="w-8 h-8" />
+                    )}
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-slate-900 text-slate-700">Current Logo (Default)</p>
-                    <button className="text-xs text-red-600 mt-1 hover:underline">Remove</button>
+                    <p className="text-sm font-medium text-slate-900">
+                      {logoUrl ? 'Current Logo' : 'Current Logo (Default)'}
+                    </p>
+                    {logoUrl && (
+                      <button 
+                        onClick={handleRemoveLogo} 
+                        disabled={uploading}
+                        className="text-xs text-red-600 mt-1 hover:underline cursor-pointer disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

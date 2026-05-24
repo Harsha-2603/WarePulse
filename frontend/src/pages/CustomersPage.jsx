@@ -5,12 +5,14 @@ import SearchBar from '../components/ui/SearchBar';
 import CustomerCard from '../features/customers/CustomerCard';
 import AddCustomerModal from '../features/customers/AddCustomerModal';
 import { useCustomers } from '../contexts/CustomerContext';
+import { useToast } from '../contexts/ToastContext';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import CSVFormatModal from '../components/modals/CSVFormatModal';
 import { Info } from 'lucide-react';
 
 const CustomersPage = () => {
   const { customers = [], addCustomer, isLoading } = useCustomers() || {};
+  const { showToast } = useToast() || {};
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
@@ -32,54 +34,124 @@ const CustomersPage = () => {
 
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target.result;
-      const lines = text.split('\n').filter(line => line.trim() !== '');
-      if (lines.length < 2) {
-        alert("The CSV file is empty or missing data.");
-        return;
-      }
+      try {
+        const text = event.target.result;
+        const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) {
+          showToast('The CSV file is empty or missing data.', 'error');
+          return;
+        }
 
-      const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
-      const required = ['name', 'phone'];
-      const missing = required.filter(field => !headers.some(h => h.includes(field)));
-
-      if (missing.length > 0) {
-        alert(`Rejected: Missing required columns: ${missing.join(', ')}`);
-        return;
-      }
-
-      const nameIdx = headers.findIndex(h => h.includes('name'));
-      const phoneIdx = headers.findIndex(h => h.includes('phone') || h.includes('mobile') || h.includes('contact'));
-      const emailIdx = headers.findIndex(h => h.includes('email'));
-      const addressIdx = headers.findIndex(h => h.includes('address'));
-      const cityIdx = headers.findIndex(h => h.includes('city'));
-      const gstIdx = headers.findIndex(h => h.includes('gst'));
-
-      let addedCount = 0;
-      for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length < headers.length) continue;
-
-        const newCustomer = {
-          name: values[nameIdx],
-          phone: values[phoneIdx],
-          email: emailIdx !== -1 ? values[emailIdx] : '',
-          address: addressIdx !== -1 ? values[addressIdx] : '',
-          city: cityIdx !== -1 ? values[cityIdx] : '',
-          gstNumber: gstIdx !== -1 ? values[gstIdx] : '',
-          joinDate: new Date().toISOString().split('T')[0],
-          totalOrders: 0,
-          totalPurchase: 0
+        // Custom parser to handle quotes and nested commas
+        const parseLine = (line) => {
+          const fields = [];
+          let field = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              if (inQuotes && line[i + 1] === '"') {
+                field += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              fields.push(field.trim());
+              field = '';
+            } else {
+              field += char;
+            }
+          }
+          fields.push(field.trim());
+          return fields;
         };
 
-        if (newCustomer.name && newCustomer.phone) {
+        const headers = parseLine(lines[0]).map(h => h.trim().toLowerCase());
+        const required = ['customer_name', 'phone'];
+        const missing = required.filter(field => !headers.includes(field));
+
+        if (missing.length > 0) {
+          showToast(`Rejected: Missing required columns: ${missing.join(', ')}`, 'error');
+          return;
+        }
+
+        const nameIdx = headers.indexOf('customer_name');
+        const phoneIdx = headers.indexOf('phone');
+        const emailIdx = headers.indexOf('email');
+        const addressIdx = headers.indexOf('address');
+        const cityIdx = headers.indexOf('city');
+        const stateIdx = headers.indexOf('state');
+        const pincodeIdx = headers.indexOf('pincode');
+        const gstIdx = headers.indexOf('gst_number');
+
+        let addedCount = 0;
+        for (let i = 1; i < lines.length; i++) {
+          const values = parseLine(lines[i]);
+          
+          // Skip completely empty rows
+          const isAllEmpty = values.every(v => v === '');
+          if (isAllEmpty) continue;
+
+          const customerName = nameIdx !== -1 && values[nameIdx] ? values[nameIdx].trim() : '';
+          const phone = phoneIdx !== -1 && values[phoneIdx] ? values[phoneIdx].trim() : '';
+
+          // Validation: skip rows missing required field values
+          if (!customerName || !phone) {
+            continue;
+          }
+
+          const email = emailIdx !== -1 && values[emailIdx] ? values[emailIdx].trim() : '';
+          const rawAddress = addressIdx !== -1 && values[addressIdx] ? values[addressIdx].trim() : '';
+          const city = cityIdx !== -1 && values[cityIdx] ? values[cityIdx].trim() : '';
+          const state = stateIdx !== -1 && values[stateIdx] ? values[stateIdx].trim() : '';
+          const pincode = pincodeIdx !== -1 && values[pincodeIdx] ? values[pincodeIdx].trim() : '';
+          const gstNumber = gstIdx !== -1 && values[gstIdx] ? values[gstIdx].trim() : '';
+
+          // Combine address + city + state + pincode into:
+          // "123 Main Market Rd, Hyderabad, Telangana - 500001"
+          const addressParts = [];
+          if (rawAddress) addressParts.push(rawAddress);
+          if (city) addressParts.push(city);
+
+          let statePin = '';
+          if (state) statePin += state;
+          if (pincode) {
+            if (statePin) {
+              statePin += ` - ${pincode}`;
+            } else {
+              statePin = pincode;
+            }
+          }
+          if (statePin) addressParts.push(statePin);
+
+          const combinedAddress = addressParts.join(', ');
+
+          const newCustomer = {
+            name: customerName,
+            phone: phone,
+            email: email,
+            address: combinedAddress,
+            gstNumber: gstNumber,
+            joinDate: new Date().toISOString().split('T')[0],
+            totalOrders: 0,
+            totalPurchase: 0
+          };
+
           addCustomer(newCustomer);
           addedCount++;
         }
-      }
 
-      alert(`Successfully imported ${addedCount} customers.`);
-      e.target.value = null; // Reset input
+        if (addedCount > 0) {
+          showToast(`Successfully imported ${addedCount} customers.`);
+        } else {
+          showToast('No valid customer data found to import.', 'error');
+        }
+        e.target.value = null; // Reset input
+      } catch (err) {
+        showToast('Failed to parse CSV file. Please check the format.', 'error');
+        console.error(err);
+      }
     };
     reader.readAsText(file);
   };

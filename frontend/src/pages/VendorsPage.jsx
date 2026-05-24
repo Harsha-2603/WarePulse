@@ -36,20 +36,17 @@ const VendorsPage = () => {
       showToast('No vendors to export.', 'error');
       return;
     }
-    const headers = ['Vendor Name', 'Invoice Received Date', 'Payment Deadline', 'Total Cost', 'Discount', 'Final Amount', 'Status', 'Account Number', 'IFSC Code', 'Bank Branch'];
+    const headers = ['vendor_name', 'gst_number', 'phone', 'email', 'account_number', 'ifsc_code', 'bank_branch'];
     const csvContent = [
       headers.join(','),
       ...vendors.map(v => [
-        `"${v.name}"`,
-        v.receivedDate,
-        v.deadline,
-        v.cost,
-        v.discount,
-        v.finalAmount,
-        v.status,
-        `"${v.bankDetails.account}"`,
-        `"${v.bankDetails.ifsc}"`,
-        `"${v.bankDetails.branch}"`
+        `"${(v.name || '').replace(/"/g, '""')}"`,
+        `"${(v.gstNumber || '').replace(/"/g, '""')}"`,
+        `"${(v.phone || '').replace(/"/g, '""')}"`,
+        `"${(v.email || '').replace(/"/g, '""')}"`,
+        `"${(v.bankDetails?.account || '').replace(/"/g, '""')}"`,
+        `"${(v.bankDetails?.ifsc || '').replace(/"/g, '""')}"`,
+        `"${(v.bankDetails?.branch || '').replace(/"/g, '""')}"`
       ].join(','))
     ].join('\n');
 
@@ -72,14 +69,39 @@ const VendorsPage = () => {
     reader.onload = (event) => {
       try {
         const text = event.target.result;
-        const rows = text.split('\n').filter(row => row.trim() !== '');
+        const rows = text.split(/\r?\n/).filter(row => row.trim() !== '');
         if (rows.length < 2) {
           showToast('CSV file is empty or missing data rows.', 'error');
           return;
         }
 
-        const headers = rows[0].split(',').map(h => h.trim().toLowerCase());
-        const requiredFields = ['vendor name', 'invoice received date', 'payment deadline', 'total cost', 'account number'];
+        // Custom parser to handle quotes and nested commas
+        const parseLine = (line) => {
+          const fields = [];
+          let field = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') {
+              if (inQuotes && line[i + 1] === '"') {
+                field += '"';
+                i++;
+              } else {
+                inQuotes = !inQuotes;
+              }
+            } else if (char === ',' && !inQuotes) {
+              fields.push(field.trim());
+              field = '';
+            } else {
+              field += char;
+            }
+          }
+          fields.push(field.trim());
+          return fields;
+        };
+
+        const headers = parseLine(rows[0]).map(h => h.trim().toLowerCase());
+        const requiredFields = ['vendor_name', 'phone'];
         
         const missingFields = requiredFields.filter(f => !headers.includes(f));
         if (missingFields.length > 0) {
@@ -87,34 +109,66 @@ const VendorsPage = () => {
           return;
         }
 
-        const newVendors = rows.slice(1).map(row => {
-          const values = row.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-          const data = {};
-          headers.forEach((header, index) => {
-            data[header] = values[index];
-          });
+        const nameIdx = headers.indexOf('vendor_name');
+        const phoneIdx = headers.indexOf('phone');
+        const gstIdx = headers.indexOf('gst_number');
+        const emailIdx = headers.indexOf('email');
+        const accountIdx = headers.indexOf('account_number');
+        const ifscIdx = headers.indexOf('ifsc_code');
+        const branchIdx = headers.indexOf('bank_branch');
 
-          return {
-            name: data['vendor name'],
-            receivedDate: data['invoice received date'],
-            deadline: data['payment deadline'],
-            cost: Number(data['total cost']) || 0,
-            discount: Number(data['discount']) || 0,
-            finalAmount: (Number(data['total cost']) || 0) - (Number(data['discount']) || 0),
-            status: 'Pending',
+        const newVendors = [];
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+        for (let i = 1; i < rows.length; i++) {
+          const values = parseLine(rows[i]);
+          
+          // Skip completely empty rows
+          const isAllEmpty = values.every(v => v === '');
+          if (isAllEmpty) continue;
+
+          const vendorName = nameIdx !== -1 && values[nameIdx] ? values[nameIdx].trim() : '';
+          const phone = phoneIdx !== -1 && values[phoneIdx] ? values[phoneIdx].trim() : '';
+
+          // Validate required fields
+          if (!vendorName || !phone) {
+            continue;
+          }
+
+          const email = emailIdx !== -1 && values[emailIdx] ? values[emailIdx].trim() : '';
+          if (email && !emailRegex.test(email)) {
+            showToast(`Row ${i + 1}: Invalid email format: "${email}"`, 'error');
+            continue;
+          }
+
+          const gstNumber = gstIdx !== -1 && values[gstIdx] ? values[gstIdx].trim() : '';
+          const account = accountIdx !== -1 && values[accountIdx] ? values[accountIdx].trim() : '';
+          const ifsc = ifscIdx !== -1 && values[ifscIdx] ? values[ifscIdx].trim() : '';
+          const branch = branchIdx !== -1 && values[branchIdx] ? values[branchIdx].trim() : '';
+
+          newVendors.push({
+            name: vendorName,
+            gstNumber: gstNumber,
+            phone: phone,
+            email: email,
             bankDetails: {
-              account: data['account number'] || '',
-              ifsc: data['ifsc code'] || '',
-              branch: data['bank branch'] || ''
+              account: account,
+              ifsc: ifsc,
+              branch: branch
             }
-          };
-        });
+          });
+        }
 
-        newVendors.forEach(vendor => addVendor(vendor));
-        showToast(`Successfully imported ${newVendors.length} vendors!`);
+        if (newVendors.length > 0) {
+          newVendors.forEach(vendor => addVendor(vendor));
+          showToast(`Successfully imported ${newVendors.length} vendors!`);
+        } else {
+          showToast('No valid vendors found to import.', 'error');
+        }
         e.target.value = null; // Clear input
       } catch (error) {
         showToast('Failed to parse CSV file. Please check the format.', 'error');
+        console.error(error);
       }
     };
     reader.readAsText(file);

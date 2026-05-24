@@ -9,26 +9,26 @@ const CSVFormatModal = ({ isOpen, onClose, type }) => {
   const config = {
     inventory: {
       title: 'Inventory CSV Format',
-      header: 'name,price,stock,unit,category',
-      example: 'Rice Premium,4500,50,kg,Grains\nSugar,60,100,kg,Grocery',
-      required: ['name', 'price', 'stock', 'unit'],
-      optional: ['category'],
+      header: 'product_name,supplier,stock_quantity,unit,purchase_price,selling_price',
+      example: 'Rice Premium,Andhra Rice Co,50,kg,4200,4500\nSugar,Local Supplier,100,kg,55,60\nWheat Flour,Grain Traders,25,kg,38,45',
+      required: ['product_name', 'stock_quantity', 'unit', 'purchase_price', 'selling_price'],
+      optional: ['supplier'],
       fileName: 'inventory_template.csv'
     },
     customer: {
       title: 'Customer CSV Format',
-      header: 'name,phone,email,address',
-      example: 'Ramesh Kumar,9876543210,ramesh@gmail.com,Hyderabad',
-      required: ['name', 'phone'],
-      optional: ['email', 'address'],
+      header: 'customer_name,email,phone,address,city,state,pincode,gst_number',
+      example: 'Ramesh Supermarket,ramesh@gmail.com,9876543210,123 Main Market Rd,Hyderabad,Telangana,500001,36AABCT1234D1Z5\nPriya Stores,priya@gmail.com,9123456780,45 Anna Nagar,Chennai,Tamil Nadu,600028,33PQRSX5678L1Z2\nKumar Traders,kumar@gmail.com,9988776655,78 MG Road,Bengaluru,Karnataka,560001,29ABCDE1234F1Z7',
+      required: ['customer_name', 'phone'],
+      optional: ['email', 'address', 'city', 'state', 'pincode', 'gst_number'],
       fileName: 'customer_template.csv'
     },
     vendor: {
       title: 'Vendor CSV Format',
-      header: 'Vendor Name,Invoice Received Date,Payment Deadline,Total Cost,Discount,Account Number,IFSC Code,Bank Branch',
-      example: 'Global Tech Suppliers,2023-10-25,2023-11-25,450000,15000,50100456123456,HDFC0001234,Banjara Hills',
-      required: ['Vendor Name', 'Invoice Received Date', 'Payment Deadline', 'Total Cost', 'Account Number'],
-      optional: ['Discount', 'IFSC Code', 'Bank Branch'],
+      header: 'vendor_name,gst_number,phone,email,account_number,ifsc_code,bank_branch',
+      example: 'Global Tech Suppliers,29ABCDE1234F1Z5,9876543210,supplier@company.com,50100456123456,HDFC0001234,Banjara Hills Hyderabad\nAndhra Rice Traders,37PQRSX5678L1Z2,9123456780,andhra@rice.com,123456789012,SBIN0000456,Vijayawada Branch\nFresh Mart Supplies,29LMNOP1234K1Z8,9988776655,freshmart@gmail.com,789456123000,ICIC0009876,Chennai Central',
+      required: ['vendor_name', 'phone'],
+      optional: ['gst_number', 'email', 'account_number', 'ifsc_code', 'bank_branch'],
       fileName: 'vendor_template.csv'
     }
   }[type];

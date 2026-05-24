@@ -13,14 +13,14 @@ const CustomerCard = ({ customer, onEdit }) => {
     pinCode,
     gstNumber, 
     joinDate,
-    totalOrders,
-    totalPurchase
+    total_orders,
+    total_spent
   } = customer;
 
   return (
-    <Card className="hover:shadow-md transition-shadow relative overflow-hidden group">
-      {/* Top Banner decoration */}
-      <div className="h-2 w-full bg-slate-100 group-hover:bg-indigo-500 transition-colors" />
+    <Card className="group relative overflow-hidden transition-all duration-300 hover:shadow-lg">
+      {/* Smooth top border hover effect */}
+      <div className="absolute top-0 left-0 h-1 bg-blue-500 w-0 group-hover:w-full transition-all duration-300 ease-in-out z-10" />
       
       <CardContent className="p-5">
         <div className="flex justify-between items-start mb-4">
@@ -67,11 +67,11 @@ const CustomerCard = ({ customer, onEdit }) => {
         <div className="border-t border-slate-100 pt-4 mt-4 grid grid-cols-2 gap-4">
           <div>
             <p className="text-xs text-slate-500 font-medium mb-1 flex items-center gap-1.5"><ShoppingCart className="w-3.5 h-3.5"/> Total Orders</p>
-            <p className="text-base font-bold text-slate-900">{totalOrders}</p>
+            <p className="text-base font-bold text-slate-900">{total_orders}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500 font-medium mb-1 flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5"/> Total Spent</p>
-            <p className="text-base font-bold text-slate-900">₹{(totalPurchase || 0).toLocaleString()}</p>
+            <p className="text-base font-bold text-slate-900">₹{Number(total_spent || 0).toLocaleString()}</p>
           </div>
         </div>
 

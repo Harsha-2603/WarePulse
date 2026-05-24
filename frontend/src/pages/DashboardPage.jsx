@@ -4,11 +4,13 @@ import RecentOrders from '../features/dashboard/RecentOrders';
 import LowStockAlert from '../features/dashboard/LowStockAlert';
 import { useOrders } from '../contexts/OrderContext';
 import { useInventory } from '../contexts/InventoryContext';
+import { useAuth } from '../contexts/AuthContext';
+
 
 const DashboardPage = () => {
   const { orders = [] } = useOrders() || {};
   const { inventoryItems = [] } = useInventory() || {};
-
+  const { user } = useAuth();
   const pendingOrdersCount = (orders || []).filter(o => o.status === 'Pending').length;
   const lowStockCount = (inventoryItems || []).filter(i => (i.stock || 0) < 15).length;
 
@@ -17,12 +19,12 @@ const DashboardPage = () => {
       {/* Welcome Banner */}
       <div className="bg-primary-600 rounded-xl p-6 sm:p-8 text-white shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative overflow-hidden">
         <div className="relative z-10">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Welcome back, Admin 👋</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Welcome back, {user.name} 👋</h1>
           <p className="mt-2 text-primary-100 max-w-xl">
             Here's what's happening with your business today. You have {pendingOrdersCount} pending orders to process and {lowStockCount} items running low on stock.
           </p>
         </div>
-        
+
         {/* Decorative background pattern */}
         <div className="hidden md:block absolute right-0 top-0 bottom-0 w-1/3 opacity-10 pointer-events-none">
           <svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">

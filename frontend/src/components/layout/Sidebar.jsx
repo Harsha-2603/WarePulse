@@ -12,9 +12,11 @@ import {
   Settings, 
   LogOut 
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const Sidebar = () => {
   const location = useLocation();
+  const { logout } = useAuth();
 
   const navItems = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -90,13 +92,13 @@ const Sidebar = () => {
           );
         })}
         
-        <NavLink 
-          to="/"
-          className="flex items-center gap-3 px-3 py-2 mt-1 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:translate-x-1 active:scale-[0.98] transition-all duration-200 w-full text-left"
+        <button 
+          onClick={logout}
+          className="flex items-center gap-3 px-3 py-2 mt-1 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 hover:translate-x-1 active:scale-[0.98] transition-all duration-200 w-full text-left cursor-pointer"
         >
           <LogOut className="w-5 h-5 text-red-500" />
           Logout
-        </NavLink>
+        </button>
       </div>
     </aside>
   );

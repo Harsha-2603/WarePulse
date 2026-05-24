@@ -9,9 +9,10 @@ import LoadingSpinner from '../components/ui/LoadingSpinner';
 import CSVFormatModal from '../components/modals/CSVFormatModal';
 import Modal from '../components/ui/Modal';
 import { Info } from 'lucide-react';
+import productService from '../services/productService';
 
 const InventoryPage = () => {
-  const { inventoryItems = [], addInventoryItem, deleteInventoryItem, isLoading } = useInventory() || {};
+  const { inventoryItems = [], addInventoryItem, deleteInventoryItem, refreshInventory, isLoading } = useInventory() || {};
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState(null);
@@ -22,19 +23,17 @@ const InventoryPage = () => {
   const handleExportCSV = () => {
     if (inventoryItems.length === 0) return;
     
-    const headers = ['Name', 'Category/Variety', 'Grade', 'Stock', 'Unit', 'Purchase Price', 'Selling Price', 'Supplier'];
+    const headers = ['product_name', 'supplier', 'stock_quantity', 'unit', 'purchase_price', 'selling_price'];
     const rows = filteredItems.map(item => [
-      item.name,
-      item.variety,
-      item.grade,
-      item.stock,
-      item.unit,
-      item.purchasePrice,
-      item.sellingPrice,
-      item.supplier
+      `"${String(item.name || '').replace(/"/g, '""')}"`,
+      `"${String(item.supplier || '').replace(/"/g, '""')}"`,
+      item.stock ?? 0,
+      `"${String(item.unit || '').replace(/"/g, '""')}"`,
+      item.purchasePrice ?? 0,
+      item.sellingPrice ?? 0
     ]);
     
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const csvContent = [headers.join(','), ...rows.map(e => e.join(","))].join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
@@ -51,55 +50,130 @@ const InventoryPage = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target.result;
-      const lines = text.split('\n').filter(line => line.trim() !== '');
+      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
       if (lines.length < 2) {
         alert("The CSV file is empty or missing data.");
         return;
       }
 
-      const headers = lines[0].toLowerCase().split(',').map(h => h.trim());
-      const required = ['name', 'price', 'stock', 'unit'];
-      const missing = required.filter(field => !headers.some(h => h.includes(field)));
+      // Helper to strip quotes
+      const cleanVal = (val) => {
+        if (!val) return '';
+        let cleaned = val.trim();
+        if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+          cleaned = cleaned.substring(1, cleaned.length - 1).trim();
+        }
+        return cleaned;
+      };
+
+      const headers = lines[0].toLowerCase().split(',').map(h => cleanVal(h));
+      const required = ['product_name', 'stock_quantity', 'unit', 'purchase_price', 'selling_price'];
+      const missing = required.filter(field => !headers.includes(field));
 
       if (missing.length > 0) {
         alert(`Rejected: Missing required columns: ${missing.join(', ')}`);
         return;
       }
 
-      const nameIdx = headers.findIndex(h => h.includes('name'));
-      const priceIdx = headers.findIndex(h => h.includes('price') && !h.includes('purchase'));
-      const purchasePriceIdx = headers.findIndex(h => h.includes('purchase'));
-      const stockIdx = headers.findIndex(h => h.includes('stock'));
-      const unitIdx = headers.findIndex(h => h.includes('unit'));
-      const varietyIdx = headers.findIndex(h => h.includes('variety') || h.includes('category'));
-      const supplierIdx = headers.findIndex(h => h.includes('supplier'));
+      const nameIdx = headers.indexOf('product_name');
+      const supplierIdx = headers.indexOf('supplier');
+      const stockIdx = headers.indexOf('stock_quantity');
+      const unitIdx = headers.indexOf('unit');
+      const purchasePriceIdx = headers.indexOf('purchase_price');
+      const sellingPriceIdx = headers.indexOf('selling_price');
 
       let addedCount = 0;
+      const errorSummary = [];
+
       for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        if (values.length < headers.length) continue;
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const values = line.split(',').map(v => cleanVal(v));
+        if (values.length < headers.length) {
+          errorSummary.push(`Row ${i + 1}: Incomplete row fields`);
+          continue;
+        }
+
+        const nameVal = values[nameIdx];
+        const supplierVal = supplierIdx !== -1 ? values[supplierIdx] : '';
+        const stockStr = values[stockIdx];
+        const unitVal = values[unitIdx];
+        const purchaseStr = values[purchasePriceIdx];
+        const sellingStr = values[sellingPriceIdx];
+
+        // Validation
+        if (!nameVal) {
+          errorSummary.push(`Row ${i + 1}: product_name is empty`);
+          continue;
+        }
+        if (stockStr === '') {
+          errorSummary.push(`Row ${i + 1}: stock_quantity is empty`);
+          continue;
+        }
+        if (!unitVal) {
+          errorSummary.push(`Row ${i + 1}: unit is empty`);
+          continue;
+        }
+        if (purchaseStr === '') {
+          errorSummary.push(`Row ${i + 1}: purchase_price is empty`);
+          continue;
+        }
+        if (sellingStr === '') {
+          errorSummary.push(`Row ${i + 1}: selling_price is empty`);
+          continue;
+        }
+
+        const stock = Number(stockStr);
+        const purchasePrice = Number(purchaseStr);
+        const sellingPrice = Number(sellingStr);
+
+        if (isNaN(stock) || stock < 0) {
+          errorSummary.push(`Row ${i + 1}: stock_quantity must be a valid number >= 0`);
+          continue;
+        }
+        if (isNaN(purchasePrice) || purchasePrice < 0) {
+          errorSummary.push(`Row ${i + 1}: purchase_price must be a valid number >= 0`);
+          continue;
+        }
+        if (isNaN(sellingPrice) || sellingPrice < 0) {
+          errorSummary.push(`Row ${i + 1}: selling_price must be a valid number >= 0`);
+          continue;
+        }
 
         const newItem = {
-          name: values[nameIdx],
-          sellingPrice: parseFloat(values[priceIdx]) || 0,
-          purchasePrice: purchasePriceIdx !== -1 ? parseFloat(values[purchasePriceIdx]) : (parseFloat(values[priceIdx]) * 0.8 || 0),
-          stock: parseFloat(values[stockIdx]) || 0,
-          unit: values[unitIdx],
-          variety: varietyIdx !== -1 ? values[varietyIdx] : 'General',
-          supplier: supplierIdx !== -1 ? values[supplierIdx] : 'imported',
+          name: nameVal,
+          supplier: supplierVal,
+          stock: stock,
+          unit: unitVal,
+          purchasePrice: purchasePrice,
+          sellingPrice: sellingPrice,
+          variety: 'General',
           grade: 'Standard',
           lastUpdated: new Date().toISOString()
         };
 
-        if (newItem.name && newItem.sellingPrice && newItem.stock && newItem.unit) {
-          addInventoryItem(newItem);
+        try {
+          await productService.createProduct(newItem);
           addedCount++;
+        } catch (err) {
+          const errMsg = err.message || 'Failed to create product';
+          errorSummary.push(`Row ${i + 1} (${nameVal}): ${errMsg}`);
         }
       }
 
-      alert(`Successfully imported ${addedCount} products.`);
+      if (addedCount > 0 && typeof refreshInventory === 'function') {
+        await refreshInventory();
+      }
+
+      if (errorSummary.length > 0) {
+        alert(`Import finished:\n- Successfully imported: ${addedCount}\n- Failed: ${errorSummary.length}\n\nErrors:\n${errorSummary.join('\n')}`);
+      } else {
+        alert(`Successfully imported all ${addedCount} products.`);
+      }
+
       e.target.value = null; // Reset input
     };
     reader.readAsText(file);
@@ -115,16 +189,27 @@ const InventoryPage = () => {
     setIsModalOpen(true);
   };
 
-  const filteredItems = (inventoryItems || []).filter(item => {
-    return item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.variety.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.supplier.toLowerCase().includes(searchQuery.toLowerCase())
+  const safeItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+  const filteredItems = safeItems.filter(item => {
+    if (!item) return false;
+    const search = (searchQuery || '').toLowerCase();
+    if (!search) return true;
+
+    return (
+      (item?.name || '').toLowerCase().includes(search) ||
+      (item?.variety || '').toLowerCase().includes(search) ||
+      (item?.supplier || '').toLowerCase().includes(search) ||
+      (item?.category || '').toLowerCase().includes(search) ||
+      (item?.unit || '').toLowerCase().includes(search)
+    );
   }).sort((a, b) => {
-    if (sortOption === 'stock_desc') return b.stock - a.stock;
-    if (sortOption === 'stock_asc') return a.stock - b.stock;
+    if (sortOption === 'stock_desc') return (b?.stock || 0) - (a?.stock || 0);
+    if (sortOption === 'stock_asc') return (a?.stock || 0) - (b?.stock || 0);
     if (sortOption === 'margin_desc') {
-      const marginA = (a.sellingPrice - a.purchasePrice) / a.sellingPrice;
-      const marginB = (b.sellingPrice - b.purchasePrice) / b.sellingPrice;
+      const priceA = Number(a?.sellingPrice) || 0;
+      const priceB = Number(b?.sellingPrice) || 0;
+      const marginA = priceA > 0 ? (priceA - (Number(a?.purchasePrice) || 0)) / priceA : 0;
+      const marginB = priceB > 0 ? (priceB - (Number(b?.purchasePrice) || 0)) / priceB : 0;
       return marginB - marginA;
     }
     return 0;
