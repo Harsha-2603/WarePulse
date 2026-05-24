@@ -1,4 +1,5 @@
 import supabase from '../config/supabaseClient.js';
+import * as productService from './productService.js';
 
 const parseCsv = (csvText) => {
   const lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
@@ -8,8 +9,6 @@ const parseCsv = (csvText) => {
   const rows = [];
   
   for (let i = 1; i < lines.length; i++) {
-    // Basic CSV split, does not handle commas inside quoted strings optimally 
-    // but keeps it lightweight without external libraries.
     const values = lines[i].split(',').map(v => v.trim());
     const row = {};
     headers.forEach((header, index) => {
@@ -29,32 +28,45 @@ export const importProducts = async (csvText, shopId) => {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     
-    if (!row.product_name || !row.purchase_price || !row.selling_price || !row.gst_rate) {
-      errors.push(`Row ${i + 2}: Missing required fields (product_name, purchase_price, selling_price, gst_rate)`);
+    // Required fields check
+    if (!row.product_name || row.stock_quantity === undefined || !row.unit || row.purchase_price === undefined || row.selling_price === undefined) {
+      errors.push(`Row ${i + 2}: Missing required fields (product_name, stock_quantity, unit, purchase_price, selling_price)`);
+      continue;
+    }
+
+    const stock = Number(row.stock_quantity);
+    const purchase = Number(row.purchase_price);
+    const sell = Number(row.selling_price);
+
+    // Validate non-negative numbers
+    if (isNaN(stock) || stock < 0) {
+      errors.push(`Row ${i + 2}: stock_quantity must be a valid number >= 0`);
+      continue;
+    }
+    if (isNaN(purchase) || purchase < 0) {
+      errors.push(`Row ${i + 2}: purchase_price must be a valid number >= 0`);
+      continue;
+    }
+    if (isNaN(sell) || sell < 0) {
+      errors.push(`Row ${i + 2}: selling_price must be a valid number >= 0`);
       continue;
     }
 
     const productData = {
       shop_id: shopId,
       product_name: row.product_name,
-      purchase_price: parseFloat(row.purchase_price),
-      selling_price: parseFloat(row.selling_price),
-      gst_rate: parseFloat(row.gst_rate)
+      vendor_name: row.supplier || null,
+      unit: row.unit,
+      stock_quantity: stock,
+      purchase_price: purchase,
+      selling_price: sell
     };
 
-    if (isNaN(productData.purchase_price) || isNaN(productData.selling_price) || isNaN(productData.gst_rate)) {
-      errors.push(`Row ${i + 2}: Invalid number format for prices or gst_rate`);
-      continue;
-    }
-
-    const { error } = await supabase
-      .from('product')
-      .insert([productData]);
-
-    if (error) {
-      errors.push(`Row ${i + 2}: ${error.message}`);
-    } else {
+    try {
+      await productService.createProduct(productData);
       successCount++;
+    } catch (error) {
+      errors.push(`Row ${i + 2}: ${error.message}`);
     }
   }
 
@@ -62,47 +74,20 @@ export const importProducts = async (csvText, shopId) => {
 };
 
 export const exportProducts = async (shopId) => {
-  const { data: products, error: productError } = await supabase
-    .from('product')
-    .select('*')
-    .eq('shop_id', shopId);
+  const products = await productService.getAllProducts(shopId);
 
-  if (productError) {
-    throw new Error(`Failed to fetch products: ${productError.message}`);
-  }
-
-  // Fetch inventory to include stock-related fields
-  const { data: inventoryData, error: inventoryError } = await supabase
-    .from('inventory')
-    .select('product_id, quantity_available')
-    .eq('shop_id', shopId);
-
-  const inventoryMap = {};
-  if (!inventoryError && inventoryData) {
-    inventoryData.forEach(inv => {
-      inventoryMap[inv.product_id] = inv.quantity_available;
-    });
-  }
-
-  if (!products || products.length === 0) {
-    return 'shop_id,product_name,purchase_price,selling_price,gst_rate,quantity_available\n'; 
-  }
-
-  // Determine headers based on product keys
-  const baseHeaders = ['id', 'shop_id', 'product_name', 'purchase_price', 'selling_price', 'gst_rate'];
-  const firstProd = products[0] || {};
-  const extraHeaders = Object.keys(firstProd).filter(k => !baseHeaders.includes(k));
-  
-  const finalHeaders = [...baseHeaders, ...extraHeaders, 'quantity_available'];
-  const csvRows = [finalHeaders.join(',')];
+  const headers = ['product_name', 'supplier', 'stock_quantity', 'unit', 'purchase_price', 'selling_price'];
+  const csvRows = [headers.join(',')];
 
   for (const p of products) {
-    const rowValues = finalHeaders.map(header => {
-      if (header === 'quantity_available') {
-        return inventoryMap[p.id] || 0;
-      }
-      return `"${String(p[header] || '').replace(/"/g, '""')}"`;
-    });
+    const rowValues = [
+      `"${String(p.product_name || '').replace(/"/g, '""')}"`,
+      `"${String(p.vendor_name || '').replace(/"/g, '""')}"`,
+      p.stock_quantity || 0,
+      `"${String(p.unit || '').replace(/"/g, '""')}"`,
+      p.purchase_price || 0,
+      p.selling_price || 0
+    ];
     csvRows.push(rowValues.join(','));
   }
 

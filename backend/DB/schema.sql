@@ -36,21 +36,37 @@ create table if not exists shop (
 -- =========================
 create table if not exists users (
   id uuid primary key default gen_random_uuid(),
-  auth_user_id uuid unique,
-  shop_id uuid not null references shop(id) on delete cascade,
-  full_name varchar(120) not null,
-  email varchar(100) not null,
-  phone varchar(15),
-  role varchar(30) not null default 'staff',
-  status varchar(20) not null default 'active',
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint users_role_check check (role in ('owner','admin','manager','staff')),
-  constraint users_status_check check (status in ('active','inactive','blocked'))
-);
 
-create index if not exists idx_users_shop_id on users(shop_id);
-create index if not exists idx_users_email on users(email);
+  auth_user_id uuid unique not null,
+
+  shop_id uuid not null references shop(id) on delete cascade,
+
+  full_name varchar(120) not null,
+
+  email varchar(100) not null,
+
+  phone varchar(15),
+
+  role varchar(30) not null default 'staff',
+
+  status varchar(20) not null default 'active',
+
+  created_at timestamptz not null default now(),
+
+  updated_at timestamptz not null default now(),
+
+  constraint users_role_check
+    check (role in ('owner','admin','manager','staff')),
+
+  constraint users_status_check
+    check (status in ('active','inactive','blocked'))
+);
+create index if not exists idx_users_shop_id
+on users(shop_id);
+
+create index if not exists idx_users_email
+on users(email);
+
 
 -- =========================
 -- CATEGORY
