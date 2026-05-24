@@ -50,8 +50,8 @@ const mapOutbound = (c) => {
 
 const customerService = {
   // GET all customers
-  getAllCustomers: async () => {
-    const { data } = await api.get('/customers');
+  getAllCustomers: async (shopId) => {
+    const { data } = await api.get(`/customers?shop_id=${shopId}`);
     return (data || []).map(mapInbound);
   },
 

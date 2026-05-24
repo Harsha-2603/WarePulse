@@ -28,6 +28,7 @@ export const AuthProvider = ({ children }) => {
           localStorage.removeItem('userId');
           localStorage.removeItem('shopId');
           localStorage.removeItem('userRole');
+          localStorage.removeItem('accessToken');
           lastSessionUserIdRef.current = null;
           setLoading(false);
         }
@@ -111,6 +112,7 @@ export const AuthProvider = ({ children }) => {
             localStorage.setItem('shopId', profile.shop_id);
           }
           localStorage.setItem('userRole', profile.role || 'staff');
+          localStorage.setItem('accessToken', currentSession.access_token);
 
           console.log("AUTH LOADING COMPLETE");
         }
@@ -121,6 +123,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('userId');
         localStorage.removeItem('shopId');
         localStorage.removeItem('userRole');
+        localStorage.removeItem('accessToken');
         if (isMounted) {
           setUser(null);
           setSession(null);
@@ -161,6 +164,7 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('userId');
         localStorage.removeItem('shopId');
         localStorage.removeItem('userRole');
+        localStorage.removeItem('accessToken');
         if (isMounted) {
           setUser(null);
           setSession(null);
@@ -229,6 +233,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('userId');
       localStorage.removeItem('shopId');
       localStorage.removeItem('userRole');
+      localStorage.removeItem('accessToken');
       lastSessionUserIdRef.current = null;
       setUser(null);
       setSession(null);

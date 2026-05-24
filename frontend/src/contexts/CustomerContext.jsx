@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { customerMock } from '../mockData/customerMock';
 import customerService from '../services/customerService';
+import { useAuth } from './AuthContext';
 
 const CustomerContext = createContext();
 
@@ -12,8 +13,11 @@ export const CustomerProvider = ({ children }) => {
   const [customers, setCustomers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { shop, loading } = useAuth() || {};
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchCustomers = useCallback(async (shopId) => {
+    if (!shopId && !useMock) return;
+
     if (useMock) {
       console.log("Using Mock Data for Customers");
       setCustomers(customerMock);
@@ -24,7 +28,7 @@ export const CustomerProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await customerService.getAllCustomers();
+      const data = await customerService.getAllCustomers(shopId);
       setCustomers(data);
     } catch (err) {
       console.error("API Error - Fetching customers failed:", err.response?.data || err.message || err);
@@ -36,8 +40,9 @@ export const CustomerProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+    if (loading || !shop?.id) return;
+    fetchCustomers(shop.id);
+  }, [loading, shop?.id, fetchCustomers]);
 
   const addCustomer = async (customerData) => {
     if (useMock) {

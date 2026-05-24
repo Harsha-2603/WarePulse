@@ -68,9 +68,9 @@ const mapPurchaseOutbound = (v, vendorId) => {
 
 const vendorService = {
   // GET all vendors (now backend aggregates purchase totals intelligently)
-  getAllVendors: async () => {
+  getAllVendors: async (shopId) => {
     try {
-      const { data: vendors } = await api.get('/vendors?ts=' + Date.now(), { 
+      const { data: vendors } = await api.get(`/vendors?shop_id=${shopId}&ts=` + Date.now(), { 
         cache: 'no-store',
         headers: {
           'Cache-Control': 'no-cache, no-store, must-revalidate',

@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import { inventoryMock } from '../mockData/inventoryMock';
 import productService from '../services/productService';
+import { useAuth } from './AuthContext';
 
 const InventoryContext = createContext();
 
@@ -12,8 +13,11 @@ export const InventoryProvider = ({ children }) => {
   const [inventoryItems, setInventoryItems] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { shop, loading } = useAuth() || {};
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (shopId) => {
+    if (!shopId && !useMock) return;
+
     if (useMock) {
       console.log("Using Mock Data for Inventory");
       setInventoryItems(inventoryMock);
@@ -24,7 +28,7 @@ export const InventoryProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await productService.getAllProducts();
+      const data = await productService.getAllProducts(shopId);
       setInventoryItems(data);
     } catch (err) {
       console.error("API Error - Fetching products failed:", err);
@@ -36,8 +40,9 @@ export const InventoryProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+    if (loading || !shop?.id) return;
+    fetchProducts(shop.id);
+  }, [loading, shop?.id, fetchProducts]);
 
   const addInventoryItem = async (item) => {
     if (useMock) {

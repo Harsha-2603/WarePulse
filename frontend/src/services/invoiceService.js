@@ -1,8 +1,8 @@
 import api from './api';
 
 const invoiceService = {
-  getAllInvoices: async () => {
-    const response = await api.get('/billing');
+  getAllInvoices: async (shopId) => {
+    const response = await api.get(`/billing?shop_id=${shopId}`);
     return response.data;
   },
 

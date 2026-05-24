@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { vendorMock } from '../mockData/vendorMock';
 import vendorService from '../services/vendorService';
+import { useAuth } from './AuthContext';
 const VendorContext = createContext();
 
 export const useVendors = () => useContext(VendorContext);
@@ -11,10 +12,13 @@ export const VendorProvider = ({ children }) => {
   const [vendors, setVendors] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { shop, loading } = useAuth() || {};
 
   const fetchCountRef = useRef(0);
 
-  const fetchVendors = useCallback(async () => {
+  const fetchVendors = useCallback(async (shopId) => {
+    if (!shopId && !useMock) return;
+
     if (useMock) {
       console.log("Using Mock Data for Vendors");
       setVendors(vendorMock);
@@ -28,7 +32,7 @@ export const VendorProvider = ({ children }) => {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await vendorService.getAllVendors();
+      const data = await vendorService.getAllVendors(shopId);
       if (currentFetch === fetchCountRef.current) {
         setVendors(data);
       }
@@ -45,8 +49,9 @@ export const VendorProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    fetchVendors();
-  }, [fetchVendors]);
+    if (loading || !shop?.id) return;
+    fetchVendors(shop.id);
+  }, [loading, shop?.id, fetchVendors]);
 
   const addVendor = async (vendor) => {
     if (useMock) {
@@ -57,7 +62,7 @@ export const VendorProvider = ({ children }) => {
 
     try {
       const newVendor = await vendorService.createVendor(vendor);
-      await fetchVendors();
+      await fetchVendors(shop?.id);
       return newVendor;
     } catch (err) {
       console.error("API Error - Creating vendor failed:", err.response?.data || err.message || err);
@@ -73,7 +78,7 @@ export const VendorProvider = ({ children }) => {
 
     try {
       const result = await vendorService.updateVendor(id, updatedVendor);
-      await fetchVendors();
+      await fetchVendors(shop?.id);
       return result;
     } catch (err) {
       console.error("API Error - Updating vendor failed:", err.response?.data || err.message || err);
@@ -90,7 +95,7 @@ export const VendorProvider = ({ children }) => {
     try {
       await vendorService.deleteVendor(id);
       // Sync with backend to ensure the list is truly fresh
-      await fetchVendors();
+      await fetchVendors(shop?.id);
     } catch (err) {
       console.error("API Error - Deleting vendor failed:", err.response?.data || err.message || err);
       alert("Failed to delete vendor invoice from backend.");

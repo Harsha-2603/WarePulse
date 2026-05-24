@@ -1,25 +1,28 @@
+import { supabase } from '../lib/supabase';
 import { BASE_URL } from '../utils/config';
+
 /**
  * Reusable fetch helper for API requests
- * Provides SAAS-compliant headers for IMS-SAAS-2026
+ * Provides SAAS-compliant headers with active JWT Bearer authentication
  */
 const apiRequest = async (path, options = {}) => {
   const url = `${BASE_URL}${path}`;
   
-  // Extract info from localStorage (using placeholders until Auth module is fully integrated)
-const userId = localStorage.getItem('userId');
-const shopId = localStorage.getItem('shopId');
-const userRole = localStorage.getItem('userRole') || 'admin';
+  const token = localStorage.getItem("accessToken");
+  const shopId = localStorage.getItem('shopId');
 
-if (!userId || !shopId) {
-  throw new Error("Missing auth context: userId or shopId not set");
-}
+  if (!token) {
+    throw new Error("Authentication required. Please sign in again.");
+  }
+
+  if (!shopId) {
+    throw new Error("Missing shop context. Please sign in again.");
+  }
 
   const headers = {
     'Content-Type': 'application/json',
-    'x-user-id': userId,
-    'x-shop-id': shopId,
-    'x-user-role': userRole,
+    'Authorization': `Bearer ${token}`,
+    'x-shop-id': shopId, // Kept for operational compatibility, verified server-side
     ...options.headers,
   };
 
@@ -63,5 +66,6 @@ const api = {
   }
 };
 
+export { BASE_URL };
 export default api;
 

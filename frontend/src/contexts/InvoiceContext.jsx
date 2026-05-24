@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import { billingMock } from '../mockData/billingMock';
 import invoiceService from '../services/invoiceService';
+import { useAuth } from './AuthContext';
 
 const InvoiceContext = createContext();
 
@@ -11,8 +12,11 @@ const useMock = import.meta.env.VITE_USE_MOCK === 'true';
 export const InvoiceProvider = ({ children }) => {
   const [invoices, setInvoices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { shop, loading } = useAuth() || {};
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (shopId) => {
+    if (!shopId && !useMock) return;
+
     if (useMock) {
       setInvoices(billingMock);
       setIsLoading(false);
@@ -20,7 +24,7 @@ export const InvoiceProvider = ({ children }) => {
     }
     try {
       setIsLoading(true);
-      const data = await invoiceService.getAllInvoices();
+      const data = await invoiceService.getAllInvoices(shopId);
       console.log("raw backend billing response", JSON.stringify(data));
       const mapped = (data || []).map(inv => {
         const mMode = inv.payment_mode;
@@ -49,8 +53,9 @@ export const InvoiceProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    fetchInvoices();
-  }, [useMock]);
+    if (loading || !shop?.id) return;
+    fetchInvoices(shop.id);
+  }, [loading, shop?.id]);
 
   const recordPayment = async (paymentData) => {
     if (useMock) {
@@ -59,7 +64,7 @@ export const InvoiceProvider = ({ children }) => {
     }
     try {
       await invoiceService.recordPayment(paymentData);
-      await fetchInvoices();
+      await fetchInvoices(shop?.id);
     } catch (error) {
       console.error("Record payment failed:", error.message);
       throw error;
@@ -86,7 +91,7 @@ export const InvoiceProvider = ({ children }) => {
       const inv = invoices.find(i => i.id === id);
       const targetId = inv?.realId || id;
       await invoiceService.updateInvoicePaymentMode(targetId, paymentMode);
-      await fetchInvoices();
+      await fetchInvoices(shop?.id);
     } catch (error) {
       console.error("Failed to update payment mode on backend:", error.message);
     }

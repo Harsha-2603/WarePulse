@@ -46,8 +46,8 @@ const mapOutbound = (item) => {
 
 const productService = {
   // GET all products
-  getAllProducts: async () => {
-    const { data } = await api.get('/products');
+  getAllProducts: async (shopId) => {
+    const { data } = await api.get(`/products?shop_id=${shopId}`);
     return (data || []).map(mapInbound);
   },
 

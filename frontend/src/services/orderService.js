@@ -2,9 +2,9 @@ import api from './api';
 
 const orderService = {
   // GET all orders
-  getAllOrders: async () => {
+  getAllOrders: async (shopId) => {
     try {
-      const response = await api.get('/orders');
+      const response = await api.get(`/orders?shop_id=${shopId}`);
       console.log("backend response", JSON.stringify(response.data));
       return response.data;
     } catch (error) {
