@@ -33,8 +33,10 @@ app.use(cors({
   allowedHeaders: [
     'Content-Type',
     'Authorization',
-    'X-Shop-Id',
-    'cache-control'
+    'x-shop-id',
+    'Cache-Control',
+    'Pragma',
+    'Expires'
   ]
 }));
 app.use(express.json());
