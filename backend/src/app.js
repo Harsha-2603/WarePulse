@@ -16,18 +16,42 @@ const app = express();
 const allowedOrigins = [
   process.env.FRONTEND_URL,
   process.env.FRONTEND_DEV_URL,
-  'http://localhost:5173', // standard Vite default fallback
-  'http://localhost:3000'
+  'https://ware-pulse.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:5000'
 ].filter(Boolean);
+
+// Remove trailing slashes for exact matches
+const normalizedOrigins = allowedOrigins.map(origin => origin.replace(/\/$/, ''));
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow server-to-server requests or REST tools (origin is undefined)
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error('Not allowed by CORS'));
+    // Allow non-browser requests (e.g. server-to-server, Postman, curl)
+    if (!origin) {
+      return callback(null, true);
     }
+
+    const normalizedOrigin = origin.replace(/\/$/, '');
+
+    // 1. Direct match check
+    if (normalizedOrigins.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    // 2. Wildcard support for any local development port
+    if (/^http:\/\/localhost(:\d+)?$/.test(normalizedOrigin) || /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(normalizedOrigin)) {
+      return callback(null, true);
+    }
+
+    // 3. Dynamic support for Vercel deployment preview domains (*.vercel.app)
+    if (normalizedOrigin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+
+    // Clean CORS rejection without throwing crashing exceptions
+    console.warn(`[CORS Audit] Request blocked from unauthorized origin: ${origin}`);
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -38,7 +62,9 @@ app.use(cors({
     'Cache-Control',
     'Pragma',
     'Expires'
-  ]
+  ],
+  preflightContinue: false,
+  optionsSuccessStatus: 204
 }));
 app.use(express.json());
 
