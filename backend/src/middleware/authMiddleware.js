@@ -129,32 +129,55 @@ export const authMiddleware = async (req, res, next) => {
       });
     }
 
-    console.log("=== TENANT DEBUG START ===");
-    console.log("REQ QUERY SHOP ID:", req.query.shop_id);
-    console.log("AUTH HEADER:", req.headers.authorization);
-    console.log("AUTH USER:", authUser);
-    console.log("DB USER:", dbUser);
-    console.log("DB USER SHOP ID:", dbUser?.shop_id);
-    console.log("=== TENANT DEBUG END ===");
+    // Extract shop_id from all possible request inputs
+    const queryShopId = req.query?.shop_id;
+    const bodyShopId = req.body?.shop_id;
+    const paramShopId = req.params?.shop_id;
+    const headerShopId = req.headers['x-shop-id'] || req.headers['x-shop-id'.toLowerCase()];
 
-    // Enforce shop isolation: if req specifies shop_id in query, must match user's shop_id safely using strings
-    if (req.query.shop_id) {
-      if (String(req.query.shop_id) !== String(req.user.shop_id)) {
-        return res.status(403).json({
-          error: "Access forbidden: Shop isolation mismatch"
-        });
-      }
+    console.log("=== SHOP AUTHORIZATION AUDIT ===");
+    console.log("- Authenticated User:", req.user.email);
+    console.log("- User Profile Shop ID:", req.user.shop_id);
+    console.log("- Request Query Shop ID:", queryShopId || "NONE");
+    console.log("- Request Body Shop ID:", bodyShopId || "NONE");
+    console.log("- Request Param Shop ID:", paramShopId || "NONE");
+    console.log("- Request Header x-shop-id:", headerShopId || "NONE");
+    console.log("================================");
+
+    // Validate Query Shop ID
+    if (queryShopId && String(queryShopId) !== String(req.user.shop_id)) {
+      console.warn(`[authMiddleware] Rejection: Query shop_id mismatch. Request: ${queryShopId}, Profile: ${req.user.shop_id}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Access forbidden: Shop isolation mismatch (Query)'
+      });
     }
 
-    // Additional fallback validation for body/params if present
-    const reqShopId = req.body?.shop_id || req.params?.shop_id;
-    if (reqShopId) {
-      if (!req.user.shop_id || String(reqShopId) !== String(req.user.shop_id)) {
-        return res.status(403).json({
-          success: false,
-          message: 'Access forbidden: Shop isolation mismatch'
-        });
-      }
+    // Validate Body Shop ID
+    if (bodyShopId && String(bodyShopId) !== String(req.user.shop_id)) {
+      console.warn(`[authMiddleware] Rejection: Body shop_id mismatch. Request: ${bodyShopId}, Profile: ${req.user.shop_id}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Access forbidden: Shop isolation mismatch (Body)'
+      });
+    }
+
+    // Validate Params Shop ID
+    if (paramShopId && String(paramShopId) !== String(req.user.shop_id)) {
+      console.warn(`[authMiddleware] Rejection: Params shop_id mismatch. Request: ${paramShopId}, Profile: ${req.user.shop_id}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Access forbidden: Shop isolation mismatch (Params)'
+      });
+    }
+
+    // Validate Header Shop ID
+    if (headerShopId && String(headerShopId) !== String(req.user.shop_id)) {
+      console.warn(`[authMiddleware] Rejection: Header x-shop-id mismatch. Request: ${headerShopId}, Profile: ${req.user.shop_id}`);
+      return res.status(403).json({
+        success: false,
+        message: 'Access forbidden: Shop isolation mismatch (Header)'
+      });
     }
 
     console.log({
