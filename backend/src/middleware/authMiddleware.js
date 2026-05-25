@@ -26,18 +26,75 @@ export const authMiddleware = async (req, res, next) => {
 
     const authUser = authData;
 
-    // Fetch user profile from public.users table using the authenticated user's email
-    const { data: dbUser, error: dbError } = await supabase
+    // Fetch user profile from public.users table using a multi-strategy production-safe lookup
+    let dbUser = null;
+    let dbError = null;
+
+    const authUserId = authUser.user.id;
+    const authEmail = authUser.user.email;
+
+    console.log(`[authMiddleware] Attempting user profile lookup. Auth User ID: ${authUserId}, Email: ${authEmail}`);
+
+    // Strategy 1: Look up by 'auth_user_id' column (designed column to match auth.users.id)
+    const authUserLookup = await supabase
       .from('users')
       .select('*')
-      .eq('email', authUser.user.email)
+      .eq('auth_user_id', authUserId)
       .maybeSingle();
 
-    console.log("AUTH USER EMAIL:", authUser.user.email);
-    console.log("DB USER:", dbUser);
+    if (authUserLookup.data) {
+      dbUser = authUserLookup.data;
+      console.log(`[authMiddleware] Strategy 1 Succeeded: Found profile by auth_user_id.`);
+    } else if (authUserLookup.error) {
+      dbError = authUserLookup.error;
+      console.error(`[authMiddleware] Strategy 1 Error (auth_user_id lookup):`, authUserLookup.error.message);
+    }
+
+    // Strategy 2: Look up by 'id' column (primary key column fallback)
+    if (!dbUser) {
+      const idLookup = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', authUserId)
+        .maybeSingle();
+
+      if (idLookup.data) {
+        dbUser = idLookup.data;
+        console.log(`[authMiddleware] Strategy 2 Succeeded: Found profile by primary key id.`);
+      } else if (idLookup.error) {
+        dbError = idLookup.error;
+        console.error(`[authMiddleware] Strategy 2 Error (id lookup):`, idLookup.error.message);
+      }
+    }
+
+    // Strategy 3: Look up by email (fallback in case only email matches, case-insensitive)
+    if (!dbUser && authEmail) {
+      const emailLookup = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', authEmail.trim().toLowerCase())
+        .maybeSingle();
+
+      if (emailLookup.data) {
+        dbUser = emailLookup.data;
+        console.log(`[authMiddleware] Strategy 3 Succeeded: Found profile by email.`);
+      } else if (emailLookup.error) {
+        dbError = emailLookup.error;
+        console.error(`[authMiddleware] Strategy 3 Error (email lookup):`, emailLookup.error.message);
+      }
+    }
+
+    // Detailed production-safe logging
+    console.log("=== USER PROFILE RETRIEVAL SUMMARY ===");
+    console.log("- Auth User ID:", authUserId);
+    console.log("- Auth Email:", authEmail);
+    console.log("- Fetched Profile:", dbUser ? JSON.stringify(dbUser) : "NULL");
+    console.log("- Shop ID:", dbUser?.shop_id || "MISSING");
+    console.log("- DB Error:", dbError ? dbError.message : "NONE");
+    console.log("======================================");
 
     if (dbError || !dbUser) {
-      console.warn(`User profile lookup failed for email ${authUser.user.email}:`, dbError?.message || 'Profile not found');
+      console.warn(`[authMiddleware] User profile lookup failed for ID ${authUserId} / email ${authEmail}:`, dbError?.message || 'Profile not found');
     }
 
     // Attach decoded details to request user property
