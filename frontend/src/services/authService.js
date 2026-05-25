@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { BASE_URL } from '../utils/config';
 
 /**
  * Supabase Authentication Service
@@ -46,6 +47,7 @@ export async function signup({ email, password, fullName, role = 'staff', shopId
     .from('users')
     .insert({
       id: authUser.id,
+      auth_user_id: authUser.id,
       full_name: fullName,
       email,
       role,
@@ -194,88 +196,51 @@ export async function createUserProfile({ id, shopId, fullName, email, phone, ro
  * @returns {Promise<{user: object, shop: object, profile: object}>}
  */
 export async function signupOwner({ email, password, fullName, phone, shopName, gstNumber, address }) {
-  // 1. Create the auth user in Supabase Auth, passing all signup data into metadata
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: {
-        full_name: fullName,
-        phone: phone || '',
-        shop_name: shopName,
-        gst_number: gstNumber || '',
-        address: address || ''
-      }
-    }
-  });
+  // 1. Trigger the transaction-safe backend signup endpoint
+  const url = `${BASE_URL}/api/auth/signup`;
+  console.log('[Auth Service] Directing signupOwner request to backend:', url);
 
-  console.log("Signup response:", authData);
-
-  if (authError) {
-    throw new Error(authError.message);
-  }
-
-  const authUser = authData?.user;
-  if (!authUser) {
-    return { user: null, shop: null, profile: null, session: null, emailVerificationPending: true };
-  }
-
-  // If email confirmation is enabled and the session is null, defer database writes.
-  // The onAuthStateChange SIGNED_IN listener will handle writing these details once the user confirms their email.
-  if (!authData.session) {
-    return { 
-      user: authUser, 
-      shop: null, 
-      profile: null, 
-      session: null, 
-      emailVerificationPending: true 
-    };
-  }
-
-  // 2. Create the shop immediately since we have an active session (user is authenticated)
-  let shop;
-  try {
-    shop = await createShopForUser({
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      password,
+      fullName,
+      phone,
       shopName,
       gstNumber,
-      phone,
-      email,
       address
-    });
-  } catch (shopError) {
-    console.error('Shop creation failed in signupOwner:', shopError.message);
-    throw shopError;
+    })
+  });
+
+  const resData = await response.json();
+
+  if (!response.ok || !resData.success) {
+    console.error('[Auth Service] Backend signup failed:', resData.message || 'Unknown backend failure');
+    throw new Error(resData.message || 'An error occurred during store registration.');
   }
 
-  // 3. Create corresponding users profile row (role = owner)
-  let profile;
-  try {
-    profile = await createUserProfile({
-      id: authUser.id,
-      shopId: shop.id,
-      fullName,
-      email,
-      phone,
-      role: 'owner',
-      status: 'active'
-    });
-  } catch (profileError) {
-    console.error('Profile creation failed in signupOwner:', profileError.message);
-    // Cleanup the created shop on rollback to keep DB clean
-    try {
-      await supabase.from('shop').delete().eq('id', shop.id);
-    } catch (cleanupErr) {
-      console.error('Cleanup of shop failed after profile error:', cleanupErr.message);
-    }
-    throw profileError;
+  // 2. Automatically log the user in to establish active Supabase Auth session instantly!
+  console.log('[Auth Service] Backend registration succeeded. Logging in user automatically...');
+  const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({
+    email,
+    password
+  });
+
+  if (sessionError) {
+    console.error('[Auth Service] Post-registration auto-login failed:', sessionError.message);
+    throw new Error('Registration was successful, but auto-login failed. Please sign in manually.');
   }
 
-  return { 
-    user: authUser, 
-    shop, 
-    profile, 
-    session: authData.session, 
-    emailVerificationPending: false 
+  return {
+    user: resData.user,
+    shop: resData.shop,
+    profile: resData.profile,
+    session: sessionData.session,
+    emailVerificationPending: false
   };
 }
 
