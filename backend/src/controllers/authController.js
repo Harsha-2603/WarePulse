@@ -1,20 +1,23 @@
 import supabase from '../config/supabaseClient.js';
 
 /**
- * Handle SaaS Owner signup in a transaction-safe manner.
- * Orchestrates creation of Shop, Supabase Auth User, and public.users profile.
- * Performs rollback and legacy orphan cleanup automatically if anything fails.
+ * Handles unified signup (both SaaS Shop Owners and regular Staff users)
+ * in a production-safe, transaction-safe manner.
+ * Orchestrates Shop creation (if Owner), Supabase Auth creation, and public.users profile creation.
+ * Guarantees that users.id is identical to auth.users.id, performs atomic rollbacks,
+ * and executes self-healing logic for legacy orphan accounts.
  */
-export const signupOwner = async (req, res, next) => {
-  const { email, password, fullName, phone, shopName, gstNumber, address } = req.body;
+export const signup = async (req, res, next) => {
+  const { email, password, fullName, phone, shopName, gstNumber, address, role, shopId } = req.body;
 
-  console.log(`[Signup Flow] Starting signup request for email: ${email}`);
+  const targetRole = role || 'owner';
+  console.log(`[Signup Flow] Starting unified signup request for email: ${email}, role: ${targetRole}`);
 
   // 1. Basic validation
-  if (!email || !password || !fullName || !shopName) {
+  if (!email || !password || !fullName) {
     return res.status(400).json({
       success: false,
-      message: 'Email, password, full name, and shop name are required.'
+      message: 'Email, password, and full name are required.'
     });
   }
 
@@ -25,11 +28,30 @@ export const signupOwner = async (req, res, next) => {
     });
   }
 
+  // Ensure context matches role requirements
+  if (targetRole === 'owner' && !shopName) {
+    return res.status(400).json({
+      success: false,
+      message: 'Shop name is required for store owner registration.'
+    });
+  }
+
+  if (targetRole !== 'owner' && !shopId) {
+    return res.status(400).json({
+      success: false,
+      message: 'Shop ID association is required for staff registration.'
+    });
+  }
+
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedGst = gstNumber?.trim().toUpperCase();
 
+  let newShopCreated = false;
+  let shopIdToUse = shopId;
+  let shopObject = null;
+
   try {
-    // 2. Prevent duplicates: Email check
+    // 2. Prevent duplicate email in users table
     const { data: existingUser, error: existUserErr } = await supabase
       .from('users')
       .select('id')
@@ -49,8 +71,8 @@ export const signupOwner = async (req, res, next) => {
       });
     }
 
-    // 3. Prevent duplicates: GST check
-    if (normalizedGst) {
+    // 3. Prevent duplicate shop GST if Owner signup
+    if (targetRole === 'owner' && normalizedGst) {
       const { data: existingShop, error: existShopErr } = await supabase
         .from('shop')
         .select('id')
@@ -72,7 +94,6 @@ export const signupOwner = async (req, res, next) => {
     }
 
     // 4. Self-Healing: Check and clean legacy orphan auth users from Supabase Auth
-    // An orphan auth user exists in auth.users but lacks a matching public.users profile row.
     try {
       const { data: { users: authUsers }, error: listAuthErr } = await supabase.auth.admin.listUsers();
       if (listAuthErr) {
@@ -94,31 +115,53 @@ export const signupOwner = async (req, res, next) => {
     }
 
     // 5. Begin transaction flow
-    // Step A: Insert Shop
-    const finalGst = normalizedGst || `GST-TEMP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-    console.log(`[Signup Flow] Inserting shop: ${shopName} with GST: ${finalGst}`);
-    const { data: newShop, error: shopInsertErr } = await supabase
-      .from('shop')
-      .insert({
-        shop_name: shopName.trim(),
-        gst_number: finalGst,
-        shop_type: 'retail',
-        phone: phone?.trim() || '',
-        email: normalizedEmail,
-        address_line1: address?.trim() || ''
-      })
-      .select()
-      .single();
+    // Step A: Handle Shop association / creation
+    if (targetRole === 'owner') {
+      const finalGst = normalizedGst || `GST-TEMP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+      console.log(`[Signup Flow] Inserting shop: ${shopName} with GST: ${finalGst}`);
+      const { data: newShop, error: shopInsertErr } = await supabase
+        .from('shop')
+        .insert({
+          shop_name: shopName.trim(),
+          gst_number: finalGst,
+          shop_type: 'retail',
+          phone: phone?.trim() || '',
+          email: normalizedEmail,
+          address_line1: address?.trim() || ''
+        })
+        .select()
+        .single();
 
-    if (shopInsertErr || !newShop) {
-      console.error('[Signup Flow] Shop creation failed:', shopInsertErr?.message || 'No data returned');
-      return res.status(500).json({
-        success: false,
-        message: `Failed to create shop context: ${shopInsertErr?.message || 'Unknown error'}`
-      });
+      if (shopInsertErr || !newShop) {
+        console.error('[Signup Flow] Shop creation failed:', shopInsertErr?.message || 'No data returned');
+        return res.status(500).json({
+          success: false,
+          message: `Failed to create shop context: ${shopInsertErr?.message || 'Unknown error'}`
+        });
+      }
+
+      newShopCreated = true;
+      shopIdToUse = newShop.id;
+      shopObject = newShop;
+      console.log(`[Signup Flow] Shop created successfully. ID: ${shopIdToUse}`);
+    } else {
+      // Validate that the existing shop ID exists
+      const { data: existingShop, error: shopErr } = await supabase
+        .from('shop')
+        .select('*')
+        .eq('id', shopIdToUse)
+        .maybeSingle();
+
+      if (shopErr || !existingShop) {
+        console.error(`[Signup Flow] Existing shop validation failed for ID ${shopIdToUse}:`, shopErr?.message);
+        return res.status(400).json({
+          success: false,
+          message: 'Specified shop association does not exist.'
+        });
+      }
+      shopObject = existingShop;
+      console.log(`[Signup Flow] Associated staff with existing Shop ID: ${shopIdToUse}`);
     }
-
-    console.log(`[Signup Flow] Shop created successfully. ID: ${newShop.id}`);
 
     // Step B: Create Supabase Auth User
     console.log(`[Signup Flow] Creating Supabase Auth user for email: ${normalizedEmail}`);
@@ -135,11 +178,10 @@ export const signupOwner = async (req, res, next) => {
     if (authCreateErr || !authData?.user) {
       console.error('[Signup Flow] Supabase Auth user creation failed:', authCreateErr?.message || 'No auth user data returned');
       
-      // Rollback shop
-      console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${newShop.id})`);
-      const { error: shopRollbackErr } = await supabase.from('shop').delete().eq('id', newShop.id);
-      if (shopRollbackErr) {
-        console.error(`[Signup Flow] Shop rollback failed for ID ${newShop.id}:`, shopRollbackErr.message);
+      // Rollback shop if newly created
+      if (newShopCreated) {
+        console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${shopIdToUse})`);
+        await supabase.from('shop').delete().eq('id', shopIdToUse);
       }
 
       return res.status(400).json({
@@ -157,12 +199,12 @@ export const signupOwner = async (req, res, next) => {
       .from('users')
       .insert({
         id: authUserId,
-        auth_user_id: authUserId, // Set both to match auth.users.id
-        shop_id: newShop.id,
+        auth_user_id: authUserId, // Set both columns to guarantee equality with auth.users.id
+        shop_id: shopIdToUse,
         full_name: fullName.trim(),
         email: normalizedEmail,
         phone: phone?.trim() || '',
-        role: 'owner',
+        role: targetRole,
         status: 'active'
       })
       .select()
@@ -171,11 +213,13 @@ export const signupOwner = async (req, res, next) => {
     if (profileInsertErr || !profile) {
       console.error('[Signup Flow] Profile creation failed:', profileInsertErr?.message || 'No profile data returned');
 
-      // Rollback Shop
-      console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${newShop.id})`);
-      const { error: shopRollbackErr } = await supabase.from('shop').delete().eq('id', newShop.id);
-      if (shopRollbackErr) {
-        console.error(`[Signup Flow] Shop rollback failed for ID ${newShop.id}:`, shopRollbackErr.message);
+      // Rollback Shop if newly created
+      if (newShopCreated) {
+        console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${shopIdToUse})`);
+        const { error: shopRollbackErr } = await supabase.from('shop').delete().eq('id', shopIdToUse);
+        if (shopRollbackErr) {
+          console.error(`[Signup Flow] Shop rollback failed for ID ${shopIdToUse}:`, shopRollbackErr.message);
+        }
       }
 
       // Rollback Auth User
@@ -192,13 +236,13 @@ export const signupOwner = async (req, res, next) => {
     }
 
     console.log(`[Signup Flow] Profile row successfully created and mapped for ID: ${authUserId}`);
-    console.log(`[Signup Flow] Owner signup completed successfully for: ${normalizedEmail}`);
+    console.log(`[Signup Flow] Unified signup completed successfully for: ${normalizedEmail}`);
 
     return res.status(201).json({
       success: true,
-      message: 'Registration and store setup completed successfully!',
+      message: 'Registration completed successfully!',
       user: authData.user,
-      shop: newShop,
+      shop: shopObject,
       profile: profile
     });
 

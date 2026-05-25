@@ -22,52 +22,36 @@ import { BASE_URL } from '../utils/config';
  * @returns {Promise<{user: object, profile: object}>}
  */
 export async function signup({ email, password, fullName, role = 'staff', shopId }) {
-  // 1. Create the auth user in Supabase Auth
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
-    password,
+  // 1. Trigger the transaction-safe backend signup endpoint
+  const url = `${BASE_URL}/api/auth/signup`;
+  console.log('[Auth Service] Directing staff signup request to backend:', url);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      email,
+      password,
+      fullName,
+      role,
+      shopId
+    })
   });
 
-  console.log("Signup response:", authData);
+  const resData = await response.json();
 
-  if (authError) {
-    throw new Error(authError.message);
-  }
-
-  const authUser = authData?.user;
-  
-  // If email confirmation is enabled and the user already exists (or under certain settings),
-  // authUser might be null/empty, or data.session is null.
-  if (!authUser) {
-    return { user: null, profile: null, session: null, emailVerificationPending: true };
-  }
-
-  // 2. Insert a corresponding row into public.users
-  const { data: profile, error: profileError } = await supabase
-    .from('users')
-    .insert({
-      id: authUser.id,
-      auth_user_id: authUser.id,
-      full_name: fullName,
-      email,
-      role,
-      shop_id: shopId,
-    })
-    .select()
-    .single();
-
-  if (profileError) {
-    // Auth user was created but profile insert failed — log for debugging
-    // but don't expose raw DB details to the caller.
-    console.error('Profile insert failed:', profileError.message);
-    throw new Error('Account created but profile setup failed. Please contact support.');
+  if (!response.ok || !resData.success) {
+    console.error('[Auth Service] Backend staff signup failed:', resData.message || 'Unknown backend failure');
+    throw new Error(resData.message || 'An error occurred during registration.');
   }
 
   return { 
-    user: authUser, 
-    profile, 
-    session: authData.session, 
-    emailVerificationPending: !authData.session 
+    user: resData.user, 
+    profile: resData.profile, 
+    session: null, 
+    emailVerificationPending: false 
   };
 }
 

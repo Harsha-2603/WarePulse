@@ -1,9 +1,9 @@
 import express from 'express';
-import { signupOwner } from '../controllers/authController.js';
+import { signup } from '../controllers/authController.js';
 
 const router = express.Router();
 
-// Public owner signup endpoint
-router.post('/signup', signupOwner);
+// Public unified signup endpoint
+router.post('/signup', signup);
 
 export default router;
