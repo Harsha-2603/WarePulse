@@ -14,7 +14,7 @@
 
 *Enterprise-grade multitenancy, dynamic inventory lifecycles, and transaction-driven operational tracking.*
 
-**[🌐 Experience Live Demo](https://ware-pulse.vercel.app/)** • **[🚀 View API Reference](#11-api-examples)** • **[📈 System Design](#5-architecture-section)**
+**[🌐 Experience Live Demo](https://ware-pulse.vercel.app/)** • **[🚀 View API Reference](#10-api-examples)** • **[📈 System Design](#5-architecture-section)**
 
 </div>
 
@@ -26,19 +26,18 @@
 3. [🔍 About WarePulse](#3-about-warepulse)
 4. [⚡ Core Features](#4-core-features)
 5. [🏗️ System Architecture](#5-architecture-section)
-6. [🗄️ Database Design](#6-database-design)
-7. [📁 Directory Structure](#7-folder-structure)
-8. [🔐 Authentication & Tenant Isolation](#8-authentication--security)
-9. [🔄 Inventory Lifecycle & Workflows](#9-inventory-workflow)
-10. [📸 Application Showcase](#10-screenshots-section)
-11. [🛰️ Secure API Specifications](#11-api-examples)
-12. [⚙️ Installation & Developer Guide](#12-installation-guide)
-13. [📄 Environment Configurations](#13-environment-variables)
-14. [🚀 Production Deployment](#14-deployment)
-15. [⚡ Performance Engineering](#15-performance-optimizations)
-16. [🗺️ Strategic Roadmap](#16-future-roadmap)
-17. [🤝 Contribution Protocols](#17-contributing-section)
-18. [📜 License](#18-license-section)
+6. [📁 Directory Structure](#6-folder-structure)
+7. [🔐 Authentication & Tenant Isolation](#7-authentication--security)
+8. [🔄 Inventory Lifecycle & Workflows](#8-inventory-workflow)
+9. [📸 Application Showcase](#9-screenshots-section)
+10. [🛰️ Secure API Specifications](#10-api-examples)
+11. [⚙️ Installation & Developer Guide](#11-installation-guide)
+12. [📄 Environment Configurations](#12-environment-variables)
+13. [🚀 Production Deployment](#13-deployment)
+14. [⚡ Performance Engineering](#14-performance-optimizations)
+15. [🗺️ Strategic Roadmap](#15-future-roadmap)
+16. [🤝 Contribution Protocols](#16-contributing-section)
+17. [📜 License](#17-license-section)
 
 ---
 
@@ -231,70 +230,7 @@ graph LR
 
 ---
 
-## 6. Database Design
-
-WarePulse utilizes a PostgreSQL database structure, enforcing relational constraints to guarantee commercial accounting consistency.
-
-```
-                  ┌──────────────────────┐
-                  │        shops         │
-                  └──────────────────────┘
-                             │
-            ┌────────────────┴────────────────┐
-            ▼                                 ▼
-┌──────────────────────┐           ┌──────────────────────┐
-│       products       │           │      customers       │
-└──────────────────────┘           └──────────────────────┘
-            │                                 │
-            ├────────────────┐                │
-            ▼                ▼                ▼
-┌──────────────────────┐  ┌──────────────────────┐
-│      inventory       │  │        sales         │
-└──────────────────────┘  └──────────────────────┘
-                             │
-                             ▼
-                          ┌──────────────────────┐
-                          │     sales_items      │
-                          └──────────────────────┘
-```
-
-### Table Specifications
-
-#### 1. `shop`
-* **Purpose:** Represents the core merchant tenant. All data is isolated by its unique tenant key.
-* **Fields:** `id` (UUID, PK), `shop_name` (Text), `created_at` (Timestamp).
-
-#### 2. `users`
-* **Purpose:** Stores user profiles and assigns users to specific shops for multi-tenant isolation.
-* **Fields:** `id` (UUID, PK), `auth_user_id` (UUID, FK to Supabase Auth), `shop_id` (UUID, FK to `shop`), `email` (Text), `role` (Text), `created_at` (Timestamp).
-
-#### 3. `product`
-* **Purpose:** Defines distinct product varieties, linking to custom vendors and standard measurement units.
-* **Fields:** `id` (UUID, PK), `shop_id` (UUID, FK to `shop`), `unit_id` (UUID, FK to `unit`), `product_name` (Text), `sku` (Text), `selling_price` (Numeric), `created_at` (Timestamp).
-
-#### 4. `inventory`
-* **Purpose:** Tracks live quantities available for products in individual shop locations.
-* **Fields:** `id` (UUID, PK), `shop_id` (UUID, FK to `shop`), `product_id` (UUID, FK to `product`), `quantity_available` (Numeric), `last_updated` (Timestamp).
-
-#### 5. `customer`
-* **Purpose:** Maintains client databases for invoice generation and specific wholesale profiles.
-* **Fields:** `id` (UUID, PK), `shop_id` (UUID, FK to `shop`), `customer_name` (Text), `phone` (Text), `email` (Text), `created_at` (Timestamp).
-
-#### 6. `sale` (Header Record)
-* **Purpose:** The master record representing a customer checkout order.
-* **Fields:** `id` (UUID, PK), `shop_id` (UUID, FK to `shop`), `customer_id` (UUID, FK to `customer`), `invoice_number` (Text, Unique), `total_amount` (Numeric), `payment_status` (Text), `delivery_date` (Date), `notes` (Text), `created_at` (Timestamp).
-
-#### 7. `sale_item` (Line Item Details)
-* **Purpose:** Represents individual line-items matching a parent order.
-* **Fields:** `id` (UUID, PK), `sale_id` (UUID, FK to `sale` ON DELETE CASCADE), `product_id` (UUID, FK to `product`), `quantity` (Numeric), `price_per_unit` (Numeric), `tax_amount` (Numeric), `line_total` (Numeric).
-
-#### 8. `vendor`
-* **Purpose:** Catalogues external wholesale manufacturers and vendors supplying inventory.
-* **Fields:** `id` (UUID, PK), `shop_id` (UUID, FK to `shop`), `vendor_name` (Text), `email` (Text), `phone` (Text).
-
----
-
-## 7. Folder Structure
+## 6. Folder Structure
 
 The repository is modularly split into standalone clean frontend and backend sub-architectures:
 
@@ -346,7 +282,7 @@ warepulse/
 
 ---
 
-## 8. Authentication & Tenant Isolation
+## 7. Authentication & Tenant Isolation
 
 WarePulse uses a **zero-trust multi-tenant isolation scheme** to protect cross-merchant databases.
 
@@ -381,7 +317,7 @@ WarePulse uses a **zero-trust multi-tenant isolation scheme** to protect cross-m
 
 ---
 
-## 9. Inventory Workflow
+## 8. Inventory Workflow
 
 The inventory workflow maintains a chronological timeline of balance adjustments to ensure a high-fidelity audit trail.
 
@@ -408,7 +344,7 @@ The inventory workflow maintains a chronological timeline of balance adjustments
 
 ---
 
-## 10. Screenshots Section
+## 9. Screenshots Section
 
 <div align="center">
 
@@ -454,7 +390,7 @@ The inventory workflow maintains a chronological timeline of balance adjustments
 
 ---
 
-## 11. API Examples
+## 10. API Examples
 
 All endpoints require authentication headers. Use the secure bearer structure below for integration.
 
@@ -549,7 +485,7 @@ All endpoints require authentication headers. Use the secure bearer structure be
 
 ---
 
-## 12. Installation Guide
+## 11. Installation Guide
 
 ### Prerequisites
 * **Node.js** (v18.0.0 or higher)
@@ -613,7 +549,7 @@ All endpoints require authentication headers. Use the secure bearer structure be
 
 ---
 
-## 13. Environment Variables
+## 12. Environment Variables
 
 To run the application securely in production, configure these variables in your hosting dashboard. **Do not commit real values to version control.**
 
@@ -645,7 +581,7 @@ VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
 
 ---
 
-## 14. Deployment
+## 13. Deployment
 
 WarePulse is optimized for high-availability cloud setups:
 
@@ -675,7 +611,7 @@ WarePulse is optimized for high-availability cloud setups:
 
 ---
 
-## 15. Performance Engineering
+## 14. Performance Engineering
 
 WarePulse is built to handle scaling and high query volumes efficiently:
 
@@ -690,7 +626,7 @@ WarePulse is built to handle scaling and high query volumes efficiently:
 
 ---
 
-## 16. Future Roadmap
+## 15. Future Roadmap
 
 - [ ] **🤖 AI Supply Forecasting:** Dynamic predictive analytics to forecast demand based on historical turnover.
 - [ ] **🏷️ Barcode Integration:** Mobile camera integrations to support quick physical barcode scanning.
@@ -701,7 +637,7 @@ WarePulse is built to handle scaling and high query volumes efficiently:
 
 ---
 
-## 17. Contributing Section
+## 16. Contributing Section
 
 We follow secure open-source guidelines to maintain software quality.
 
@@ -715,13 +651,13 @@ We follow secure open-source guidelines to maintain software quality.
 
 ---
 
-## 18. License Section
+## 17. License Section
 
 Distributed under the MIT License. See [LICENSE](LICENSE) for more details.
 
 ---
 
-## 19. Professional Footer
+## 18. Professional Footer
 
 <div align="center">
 
