@@ -11,49 +11,7 @@ import { BASE_URL } from '../utils/config';
  */
 
 /**
- * Sign up a new user with email + password.
- *
- * @param {Object}  params
- * @param {string}  params.email
- * @param {string}  params.password
- * @param {string}  params.fullName
- * @param {string}  [params.role='staff']
- * @param {string}  params.shopId       UUID of the shop this user belongs to
- * @returns {Promise<{user: object, profile: object}>}
- */
-export async function signup({ email, password, fullName, role = 'staff', shopId }) {
-  // 1. Trigger the transaction-safe backend signup endpoint
-  const url = `${BASE_URL}/api/auth/signup`;
-  console.log('[Auth Service] Directing staff signup request to backend:', url);
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      email,
-      password,
-      fullName,
-      role,
-      shopId
-    })
-  });
-
-  const resData = await response.json();
-
-  if (!response.ok || !resData.success) {
-    console.error('[Auth Service] Backend staff signup failed:', resData.message || 'Unknown backend failure');
-    throw new Error(resData.message || 'An error occurred during registration.');
-  }
-
-  return { 
-    user: resData.user, 
-    profile: resData.profile, 
-    session: null, 
-    emailVerificationPending: false 
-  };
-}
 
 /**
  * Sign up a new SaaS customer (owner user + new shop).
@@ -181,8 +139,11 @@ export async function createUserProfile({ id, shopId, fullName, email, phone, ro
  */
 export async function signupOwner({ email, password, fullName, phone, shopName, gstNumber, address }) {
   // 1. Trigger the transaction-safe backend signup endpoint
-  const url = `${BASE_URL}/api/auth/signup`;
+  const url = `${BASE_URL}/auth/signup`;
   console.log('[Auth Service] Directing signupOwner request to backend:', url);
+
+  const apiUrl = url;
+  console.log("API URL:", apiUrl);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -320,6 +281,6 @@ export async function getSession() {
   return session;
 }
 
-const authService = { signup, signupOwner, login, logout, getCurrentUser, getUserProfile, onAuthStateChange, getSession, createShopForUser, createUserProfile };
+const authService = { signupOwner, login, logout, getCurrentUser, getUserProfile, onAuthStateChange, getSession, createShopForUser, createUserProfile };
 export default authService;
 

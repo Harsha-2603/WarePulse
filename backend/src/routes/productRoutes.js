@@ -7,7 +7,8 @@ import {
   updateProduct,
   deleteProduct,
   importProductsCsv,
-  exportProductsCsv
+  exportProductsCsv,
+  getUnits
 } from '../controllers/productController.js';
 
 const router = Router();
@@ -16,6 +17,8 @@ router.use(authMiddleware);
 
 router.post('/import', importProductsCsv);
 router.get('/export', exportProductsCsv);
+
+router.get('/units', getUnits);
 
 router.get('/', getProducts);
 router.post('/', createProduct);

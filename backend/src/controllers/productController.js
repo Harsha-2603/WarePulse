@@ -34,6 +34,7 @@ export const createProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'shop_id is required' });
     }
 
+    delete req.body.shop_id;
     const productData = { ...req.body, shop_id: shopId };
     const newProduct = await productService.createProduct(productData);
     return res.status(201).json(newProduct);
@@ -77,6 +78,7 @@ export const updateProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'shop_id is required' });
     }
 
+    delete req.body.shop_id;
     const updatedProduct = await productService.updateProduct(id, shopId, req.body);
     return res.status(200).json(updatedProduct);
   } catch (error) {
@@ -141,5 +143,14 @@ export const exportProductsCsv = async (req, res) => {
   } catch (error) {
     const isVal = error.message.toLowerCase().includes('require') || error.message.toLowerCase().includes('invalid') || error.message.includes('stock') || error.message.includes('allow') || error.message.includes('negative');
     return res.status(isVal ? 400 : 500).json({ success: false, message: error.message });
+  }
+};
+
+export const getUnits = async (req, res) => {
+  try {
+    const units = await productService.getAllUnits();
+    return res.status(200).json(units);
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
   }
 };

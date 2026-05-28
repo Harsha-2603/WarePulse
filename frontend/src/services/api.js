@@ -7,6 +7,8 @@ import { BASE_URL } from '../utils/config';
  */
 const apiRequest = async (path, options = {}) => {
   const url = `${BASE_URL}${path}`;
+  const apiUrl = url;
+  console.log("API URL:", apiUrl);
   
   const token = localStorage.getItem("accessToken");
   const shopId = localStorage.getItem('shopId');

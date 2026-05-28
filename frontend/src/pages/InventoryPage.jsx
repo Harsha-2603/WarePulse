@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import Button from '../components/ui/Button';
 import SearchBar from '../components/ui/SearchBar';
@@ -10,6 +10,76 @@ import CSVFormatModal from '../components/modals/CSVFormatModal';
 import Modal from '../components/ui/Modal';
 import { Info } from 'lucide-react';
 import productService from '../services/productService';
+
+// High-end CSS pulse loading card mirroring the structure of InventoryCard
+const SkeletonCard = () => {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden p-5 animate-pulse relative">
+      {/* Top Accent line */}
+      <div className="absolute top-0 left-0 h-1 bg-slate-200 w-full" />
+      
+      {/* Card Content padding */}
+      <div className="flex justify-between items-start mb-4">
+        <div className="space-y-2.5 w-3/4">
+          {/* Product Name */}
+          <div className="h-5 bg-slate-200 rounded-md w-5/6" />
+          {/* Supplier */}
+          <div className="h-4 bg-slate-200 rounded-md w-1/2" />
+          {/* Unit */}
+          <div className="h-3.5 bg-slate-200 rounded-md w-1/3" />
+          {/* Status Badge */}
+          <div className="h-5 bg-slate-200 rounded-full w-1/4 mt-2" />
+        </div>
+        {/* Action Buttons */}
+        <div className="flex gap-1.5">
+          <div className="w-7 h-7 bg-slate-100 rounded-md" />
+          <div className="w-7 h-7 bg-slate-100 rounded-md" />
+        </div>
+      </div>
+
+      {/* Grid of stats */}
+      <div className="grid grid-cols-2 gap-y-4 gap-x-2 my-5">
+        <div className="space-y-2">
+          <div className="h-3 bg-slate-200 rounded w-1/3" />
+          <div className="h-5 bg-slate-200 rounded w-2/3" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 bg-slate-200 rounded w-1/3" />
+          <div className="h-5 bg-slate-200 rounded w-2/3" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 bg-slate-200 rounded w-1/3" />
+          <div className="h-4 bg-slate-200 rounded w-1/2" />
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 bg-slate-200 rounded w-1/3" />
+          <div className="h-4 bg-slate-200 rounded w-1/2" />
+        </div>
+      </div>
+
+      {/* Timestamp */}
+      <div className="mt-3 flex justify-end">
+        <div className="h-3 bg-slate-200 rounded w-1/4" />
+      </div>
+
+      {/* Footer link */}
+      <div className="border-t border-slate-100 pt-3 mt-3 flex justify-end">
+        <div className="h-4 bg-slate-200 rounded w-1/4" />
+      </div>
+    </div>
+  );
+};
+
+// Grid container rendering 8 pulse skeleton cards
+const SkeletonGrid = () => {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      {Array.from({ length: 8 }).map((_, index) => (
+        <SkeletonCard key={index} />
+      ))}
+    </div>
+  );
+};
 
 const InventoryPage = () => {
   const { inventoryItems = [], addInventoryItem, deleteInventoryItem, refreshInventory, isLoading } = useInventory() || {};
@@ -52,126 +122,27 @@ const InventoryPage = () => {
     const reader = new FileReader();
     reader.onload = async (event) => {
       const text = event.target.result;
-      const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-      if (lines.length < 2) {
-        alert("The CSV file is empty or missing data.");
-        return;
-      }
-
-      // Helper to strip quotes
-      const cleanVal = (val) => {
-        if (!val) return '';
-        let cleaned = val.trim();
-        if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-          cleaned = cleaned.substring(1, cleaned.length - 1).trim();
-        }
-        return cleaned;
-      };
-
-      const headers = lines[0].toLowerCase().split(',').map(h => cleanVal(h));
-      const required = ['product_name', 'stock_quantity', 'unit', 'purchase_price', 'selling_price'];
-      const missing = required.filter(field => !headers.includes(field));
-
-      if (missing.length > 0) {
-        alert(`Rejected: Missing required columns: ${missing.join(', ')}`);
-        return;
-      }
-
-      const nameIdx = headers.indexOf('product_name');
-      const supplierIdx = headers.indexOf('supplier');
-      const stockIdx = headers.indexOf('stock_quantity');
-      const unitIdx = headers.indexOf('unit');
-      const purchasePriceIdx = headers.indexOf('purchase_price');
-      const sellingPriceIdx = headers.indexOf('selling_price');
-
-      let addedCount = 0;
-      const errorSummary = [];
-
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        const values = line.split(',').map(v => cleanVal(v));
-        if (values.length < headers.length) {
-          errorSummary.push(`Row ${i + 1}: Incomplete row fields`);
-          continue;
+      
+      try {
+        console.log("Dispatching CSV bulk import data to backend...");
+        const response = await productService.importProducts(text);
+        console.log("CSV Bulk Import response:", response);
+        
+        if (typeof refreshInventory === 'function') {
+          await refreshInventory();
         }
 
-        const nameVal = values[nameIdx];
-        const supplierVal = supplierIdx !== -1 ? values[supplierIdx] : '';
-        const stockStr = values[stockIdx];
-        const unitVal = values[unitIdx];
-        const purchaseStr = values[purchasePriceIdx];
-        const sellingStr = values[sellingPriceIdx];
-
-        // Validation
-        if (!nameVal) {
-          errorSummary.push(`Row ${i + 1}: product_name is empty`);
-          continue;
+        const successCount = response.successCount || 0;
+        const errors = response.errors || [];
+        
+        if (errors.length > 0) {
+          alert(`Import finished:\n- Successfully imported: ${successCount}\n- Failed: ${errors.length}\n\nErrors:\n${errors.join('\n')}`);
+        } else {
+          alert(`Successfully imported all ${successCount} products.`);
         }
-        if (stockStr === '') {
-          errorSummary.push(`Row ${i + 1}: stock_quantity is empty`);
-          continue;
-        }
-        if (!unitVal) {
-          errorSummary.push(`Row ${i + 1}: unit is empty`);
-          continue;
-        }
-        if (purchaseStr === '') {
-          errorSummary.push(`Row ${i + 1}: purchase_price is empty`);
-          continue;
-        }
-        if (sellingStr === '') {
-          errorSummary.push(`Row ${i + 1}: selling_price is empty`);
-          continue;
-        }
-
-        const stock = Number(stockStr);
-        const purchasePrice = Number(purchaseStr);
-        const sellingPrice = Number(sellingStr);
-
-        if (isNaN(stock) || stock < 0) {
-          errorSummary.push(`Row ${i + 1}: stock_quantity must be a valid number >= 0`);
-          continue;
-        }
-        if (isNaN(purchasePrice) || purchasePrice < 0) {
-          errorSummary.push(`Row ${i + 1}: purchase_price must be a valid number >= 0`);
-          continue;
-        }
-        if (isNaN(sellingPrice) || sellingPrice < 0) {
-          errorSummary.push(`Row ${i + 1}: selling_price must be a valid number >= 0`);
-          continue;
-        }
-
-        const newItem = {
-          name: nameVal,
-          supplier: supplierVal,
-          stock: stock,
-          unit: unitVal,
-          purchasePrice: purchasePrice,
-          sellingPrice: sellingPrice,
-          variety: 'General',
-          grade: 'Standard',
-          lastUpdated: new Date().toISOString()
-        };
-
-        try {
-          await productService.createProduct(newItem);
-          addedCount++;
-        } catch (err) {
-          const errMsg = err.message || 'Failed to create product';
-          errorSummary.push(`Row ${i + 1} (${nameVal}): ${errMsg}`);
-        }
-      }
-
-      if (addedCount > 0 && typeof refreshInventory === 'function') {
-        await refreshInventory();
-      }
-
-      if (errorSummary.length > 0) {
-        alert(`Import finished:\n- Successfully imported: ${addedCount}\n- Failed: ${errorSummary.length}\n\nErrors:\n${errorSummary.join('\n')}`);
-      } else {
-        alert(`Successfully imported all ${addedCount} products.`);
+      } catch (err) {
+        console.error("Bulk CSV import failed:", err);
+        alert(`Bulk CSV Import failed: ${err.message || err}`);
       }
 
       e.target.value = null; // Reset input
@@ -189,31 +160,32 @@ const InventoryPage = () => {
     setIsModalOpen(true);
   };
 
-  const safeItems = Array.isArray(inventoryItems) ? inventoryItems : [];
-  const filteredItems = safeItems.filter(item => {
-    if (!item) return false;
-    const search = (searchQuery || '').toLowerCase();
-    if (!search) return true;
+  const filteredItems = useMemo(() => {
+    const safeItems = Array.isArray(inventoryItems) ? inventoryItems : [];
+    return safeItems.filter(item => {
+      if (!item) return false;
+      const search = (searchQuery || '').toLowerCase();
+      if (!search) return true;
 
-    return (
-      (item?.name || '').toLowerCase().includes(search) ||
-      (item?.variety || '').toLowerCase().includes(search) ||
-      (item?.supplier || '').toLowerCase().includes(search) ||
-      (item?.category || '').toLowerCase().includes(search) ||
-      (item?.unit || '').toLowerCase().includes(search)
-    );
-  }).sort((a, b) => {
-    if (sortOption === 'stock_desc') return (b?.stock || 0) - (a?.stock || 0);
-    if (sortOption === 'stock_asc') return (a?.stock || 0) - (b?.stock || 0);
-    if (sortOption === 'margin_desc') {
-      const priceA = Number(a?.sellingPrice) || 0;
-      const priceB = Number(b?.sellingPrice) || 0;
-      const marginA = priceA > 0 ? (priceA - (Number(a?.purchasePrice) || 0)) / priceA : 0;
-      const marginB = priceB > 0 ? (priceB - (Number(b?.purchasePrice) || 0)) / priceB : 0;
-      return marginB - marginA;
-    }
-    return 0;
-  });
+      return (
+        (item?.name || '').toLowerCase().includes(search) ||
+        (item?.variety || '').toLowerCase().includes(search) ||
+        (item?.supplier || '').toLowerCase().includes(search) ||
+        (item?.unit || '').toLowerCase().includes(search)
+      );
+    }).sort((a, b) => {
+      if (sortOption === 'stock_desc') return (b?.stock || 0) - (a?.stock || 0);
+      if (sortOption === 'stock_asc') return (a?.stock || 0) - (b?.stock || 0);
+      if (sortOption === 'margin_desc') {
+        const priceA = Number(a?.sellingPrice) || 0;
+        const priceB = Number(b?.sellingPrice) || 0;
+        const marginA = priceA > 0 ? (priceA - (Number(a?.purchasePrice) || 0)) / priceA : 0;
+        const marginB = priceB > 0 ? (priceB - (Number(b?.purchasePrice) || 0)) / priceB : 0;
+        return marginB - marginA;
+      }
+      return 0;
+    });
+  }, [inventoryItems, searchQuery, sortOption]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -252,7 +224,7 @@ const InventoryPage = () => {
           <Button variant="outline" className="hidden sm:flex" onClick={handleExportCSV}>Export CSV</Button>
           <Button onClick={() => openAddModal()} className="w-full sm:w-auto">
             <Plus className="w-4 h-4 mr-2" />
-            Add Product Category
+            Add Product
           </Button>
         </div>
       </div>
@@ -261,7 +233,7 @@ const InventoryPage = () => {
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-col sm:flex-row gap-4 items-center justify-between">
         <div className="w-full sm:max-w-md">
           <SearchBar 
-            placeholder="Search by product name, category, or supplier..." 
+            placeholder="Search by product name or supplier..." 
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -281,9 +253,7 @@ const InventoryPage = () => {
 
       {/* Main Grid */}
       {isLoading ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-20 flex items-center justify-center">
-          <LoadingSpinner size="lg" text="Loading inventory..." />
-        </div>
+        <SkeletonGrid />
       ) : filteredItems.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {filteredItems.map((item) => (

@@ -22,15 +22,24 @@ const OrdersTable = ({ orders, onUpdateStatus, onViewDetails }) => {
     }
   };
 
+  const formatDate = (dateStr) => {
+    if (!dateStr) return 'N/A';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
   const handleStatusUpdate = (orderId, order, newStatus) => {
     onUpdateStatus(orderId, newStatus);
     
     if (newStatus === 'Completed') {
+      const orderAmount = order.amount || order.total_amount || 0;
+      const orderCustomer = order.customer || order.customer_name || 'Walk-in Customer';
       // Auto-generate invoice
       addInvoice({
         orderId: orderId,
-        customer: order.customer,
-        amount: order.amount,
+        customer: orderCustomer,
+        amount: orderAmount,
         date: new Date().toISOString().split('T')[0],
         status: 'Pending', // Creating with incomplete status as requested
         paymentMode: 'Cash' // Default payment mode
@@ -60,6 +69,8 @@ const OrdersTable = ({ orders, onUpdateStatus, onViewDetails }) => {
     }, 100);
   };
 
+  console.log("[OrdersTable] Rendering table with orders count:", orders?.length || 0);
+
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden text-center sm:text-left">
@@ -76,61 +87,70 @@ const OrdersTable = ({ orders, onUpdateStatus, onViewDetails }) => {
           </TableHeader>
           <TableBody>
             {(orders || []).length > 0 ? (
-              (orders || []).map((order) => (
-                <TableRow key={order.id} className="group transition-colors hover:bg-slate-50/50">
-                  <TableCell>
-                    <div className="font-medium text-slate-900">{order.id}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{order.items} items</div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-medium text-slate-700">{order.customer}</span>
-                  </TableCell>
-                  <TableCell className="text-slate-500">
-                    {new Date(order.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </TableCell>
-                  <TableCell>
-                    <span className="font-semibold text-slate-700">₹{order.amount.toLocaleString()}</span>
-                  </TableCell>
-                  <TableCell>{getStatusBadge(order.status)}</TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {/* Integrated Action Icons */}
-                      <button 
-                        onClick={() => onViewDetails(order)}
-                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
-                        title="Preview Order"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button 
-                        onClick={() => handleDownloadPDF(order)}
-                        className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
-                        title="Download Invoice"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                      
-                      {/* More Options Menu */}
-                      <Dropdown 
-                        align="right" 
-                        trigger={
-                          <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-                        }
-                      >
-                        <DropdownItem icon={<FileText className="w-4 h-4"/>} onClick={() => onViewDetails(order)}>View Details</DropdownItem>
-                        {order.status !== 'Completed' && (
-                          <DropdownItem icon={<CheckCircle className="w-4 h-4 text-emerald-500"/>} onClick={() => handleStatusUpdate(order.id, order, 'Completed')}>Mark as Completed</DropdownItem>
-                        )}
-                        {order.status === 'Pending' && (
-                          <DropdownItem icon={<Clock className="w-4 h-4 text-amber-500"/>} onClick={() => handleStatusUpdate(order.id, order, 'Processing')}>Mark as Processing</DropdownItem>
-                        )}
-                      </Dropdown>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+              (orders || []).map((order) => {
+                const orderCustomer = order.customer || order.customer_name || 'Walk-in Customer';
+                const orderAmount = order.amount || order.total_amount || 0;
+                const orderStatus = order.status || order.sale_status || 'Pending';
+                const itemsCount = Array.isArray(order.items) 
+                  ? order.items.length 
+                  : (order.item_count || order.items || 0);
+
+                return (
+                  <TableRow key={order.id} className="group transition-colors hover:bg-slate-50/50">
+                    <TableCell>
+                      <div className="font-medium text-slate-900">{order.id}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">{itemsCount} items</div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-medium text-slate-700">{orderCustomer}</span>
+                    </TableCell>
+                    <TableCell className="text-slate-500">
+                      {formatDate(order.date || order.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <span className="font-semibold text-slate-700">₹{orderAmount.toLocaleString()}</span>
+                    </TableCell>
+                    <TableCell>{getStatusBadge(orderStatus)}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        {/* Integrated Action Icons */}
+                        <button 
+                          onClick={() => onViewDetails(order)}
+                          className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all"
+                          title="Preview Order"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDownloadPDF(order)}
+                          className="p-2 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all"
+                          title="Download Invoice"
+                        >
+                          <Download className="w-4 h-4" />
+                        </button>
+                        
+                        {/* More Options Menu */}
+                        <Dropdown 
+                          align="right" 
+                          trigger={
+                            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all">
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+                          }
+                        >
+                          <DropdownItem icon={<FileText className="w-4 h-4"/>} onClick={() => onViewDetails(order)}>View Details</DropdownItem>
+                          {orderStatus !== 'Completed' && (
+                            <DropdownItem icon={<CheckCircle className="w-4 h-4 text-emerald-500"/>} onClick={() => handleStatusUpdate(order.id, order, 'Completed')}>Mark as Completed</DropdownItem>
+                          )}
+                          {orderStatus === 'Pending' && (
+                            <DropdownItem icon={<Clock className="w-4 h-4 text-amber-500"/>} onClick={() => handleStatusUpdate(order.id, order, 'Processing')}>Mark as Processing</DropdownItem>
+                          )}
+                        </Dropdown>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             ) : (
               <TableEmptyState 
                 colSpan={6} 

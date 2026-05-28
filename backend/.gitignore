@@ -13,3 +13,5 @@ tmp/
 .vscode/
 .idea/
 coverage/
+DB/
+

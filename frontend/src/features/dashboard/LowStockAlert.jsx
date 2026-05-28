@@ -30,7 +30,6 @@ const LowStockAlert = () => {
                     <h4 className="text-sm font-semibold text-slate-800">
                       {item.name} {item.unit ? `- ${item.unit}` : ''}
                     </h4>
-                    <p className="text-xs text-slate-500 mt-1 uppercase tracking-tight">{item.category || 'General'}</p>
                   </div>
                   <div className="text-right">
                     <span className="text-sm font-bold text-red-600">{item.stock} left</span>

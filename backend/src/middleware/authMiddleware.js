@@ -13,6 +13,7 @@ export const authMiddleware = async (req, res, next) => {
 
   // Extract the raw token
   const token = authHeader.split(' ')[1];
+  console.log("TOKEN:", token);
 
   try {
     // Validate token directly with Supabase
@@ -163,13 +164,8 @@ export const authMiddleware = async (req, res, next) => {
       });
     }
 
-    // Normalize 'user' role to 'staff' for application compatibility
-    if (req.user.role === 'user') {
-      req.user.role = 'staff';
-    }
-
-    // Enforce role validation: support owner, admin, manager, staff
-    const allowedRoles = ['owner', 'admin', 'manager', 'staff'];
+    // Enforce role validation: support owner strictly
+    const allowedRoles = ['owner'];
     if (!allowedRoles.includes(req.user.role)) {
       return res.status(403).json({
         success: false,
@@ -198,15 +194,6 @@ export const authMiddleware = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         message: 'Access forbidden: Shop isolation mismatch (Query)'
-      });
-    }
-
-    // Validate Body Shop ID
-    if (bodyShopId && String(bodyShopId) !== String(req.user.shop_id)) {
-      console.warn(`[authMiddleware] Rejection: Body shop_id mismatch. Request: ${bodyShopId}, Profile: ${req.user.shop_id}`);
-      return res.status(403).json({
-        success: false,
-        message: 'Access forbidden: Shop isolation mismatch (Body)'
       });
     }
 
@@ -245,10 +232,10 @@ export const authMiddleware = async (req, res, next) => {
 };
 
 export const isAdmin = (req) => {
-  return req.user && ['owner', 'admin'].includes(req.user.role);
+  return req.user && req.user.role === 'owner';
 };
 
 export const hasRole = (req, roles = []) => {
   if (!req.user || !req.user.role) return false;
-  return roles.includes(req.user.role);
+  return roles.includes(req.user.role) || req.user.role === 'owner';
 };

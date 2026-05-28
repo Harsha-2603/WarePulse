@@ -46,6 +46,7 @@ const InventoryCard = ({ item, onEdit, onDelete }) => {
           <div>
             <h3 className="font-bold text-lg text-slate-800 line-clamp-1" title={name}>{name}</h3>
             <p className="text-sm text-slate-500 font-medium mt-0.5">Supplier: {supplier || 'N/A'}</p>
+            <p className="text-xs text-slate-400 font-medium mt-0.5">Unit: {(typeof product.unit === 'object' ? product.unit?.unit_name : product.unit) || product.unit_name || "N/A"}</p>
             <div className="mt-1.5">
               <Badge variant={stockStatus.variant}>
                 {stockStatus.label}

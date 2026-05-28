@@ -27,9 +27,7 @@ const Navbar = ({ onMenuClick }) => {
         <div className="flex items-center gap-3 pl-3 sm:pl-4 border-l border-slate-200">
           <div className="hidden sm:flex flex-col text-right">
             <span className="text-sm font-medium text-slate-900">{user?.name || 'Admin User'}</span>
-            <span className="text-xs text-slate-500">
-              {user?.role ? user.role.charAt(0).toUpperCase() + user.role.slice(1) : 'Store Manager'}
-            </span>
+            <span className="text-xs text-slate-500">Store Owner</span>
           </div>
           <button className="h-8 w-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 font-bold overflow-hidden ring-2 ring-white">
             <img 

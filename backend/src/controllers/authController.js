@@ -1,4 +1,6 @@
 import supabase from '../config/supabaseClient.js';
+import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 /**
  * Handles unified signup (both SaaS Shop Owners and regular Staff users)
@@ -8,16 +10,18 @@ import supabase from '../config/supabaseClient.js';
  * and executes self-healing logic for legacy orphan accounts.
  */
 export const signup = async (req, res, next) => {
-  const { email, password, fullName, phone, shopName, gstNumber, address, role, shopId } = req.body;
+  console.log("AUTH ROUTE HIT");
+  console.log("SIGNUP REQUEST RECEIVED");
+  const { email, password, fullName, phone, shopName, gstNumber, address } = req.body;
 
-  const targetRole = role || 'owner';
-  console.log(`[Signup Flow] Starting unified signup request for email: ${email}, role: ${targetRole}`);
+  const targetRole = 'owner';
+  console.log(`[Signup Flow] Starting signup request for email: ${email}`);
 
   // 1. Basic validation
-  if (!email || !password || !fullName) {
+  if (!email || !password || !fullName || !shopName) {
     return res.status(400).json({
       success: false,
-      message: 'Email, password, and full name are required.'
+      message: 'Email, password, full name, and shop name are required.'
     });
   }
 
@@ -28,26 +32,11 @@ export const signup = async (req, res, next) => {
     });
   }
 
-  // Ensure context matches role requirements
-  if (targetRole === 'owner' && !shopName) {
-    return res.status(400).json({
-      success: false,
-      message: 'Shop name is required for store owner registration.'
-    });
-  }
-
-  if (targetRole !== 'owner' && !shopId) {
-    return res.status(400).json({
-      success: false,
-      message: 'Shop ID association is required for staff registration.'
-    });
-  }
-
   const normalizedEmail = email.trim().toLowerCase();
   const normalizedGst = gstNumber?.trim().toUpperCase();
 
   let newShopCreated = false;
-  let shopIdToUse = shopId;
+  let shopIdToUse = null;
   let shopObject = null;
 
   try {
@@ -72,7 +61,7 @@ export const signup = async (req, res, next) => {
     }
 
     // 3. Prevent duplicate shop GST if Owner signup
-    if (targetRole === 'owner' && normalizedGst) {
+    if (normalizedGst) {
       const { data: existingShop, error: existShopErr } = await supabase
         .from('shop')
         .select('id')
@@ -115,53 +104,38 @@ export const signup = async (req, res, next) => {
     }
 
     // 5. Begin transaction flow
-    // Step A: Handle Shop association / creation
-    if (targetRole === 'owner') {
-      const finalGst = normalizedGst || `GST-TEMP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
-      console.log(`[Signup Flow] Inserting shop: ${shopName} with GST: ${finalGst}`);
-      const { data: newShop, error: shopInsertErr } = await supabase
-        .from('shop')
-        .insert({
-          shop_name: shopName.trim(),
-          gst_number: finalGst,
-          shop_type: 'retail',
-          phone: phone?.trim() || '',
-          email: normalizedEmail,
-          address_line1: address?.trim() || ''
-        })
-        .select()
-        .single();
+    const shopId = crypto.randomUUID();
+    shopIdToUse = shopId;
+    console.log(`[Signup Flow] Generated Shop UUID: ${shopId}`);
 
-      if (shopInsertErr || !newShop) {
-        console.error('[Signup Flow] Shop creation failed:', shopInsertErr?.message || 'No data returned');
-        return res.status(500).json({
-          success: false,
-          message: `Failed to create shop context: ${shopInsertErr?.message || 'Unknown error'}`
-        });
-      }
+    // Step A: Handle Shop association / creation (Insert into shop table FIRST using that UUID)
+    const finalGst = normalizedGst || `GST-TEMP-${Math.random().toString(36).substring(2, 9).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+    console.log(`[Signup Flow] Inserting shop: ${shopName} with GST: ${finalGst} and UUID: ${shopId}`);
+    const { data: newShop, error: shopInsertErr } = await supabase
+      .from('shop')
+      .insert({
+        id: shopId, // Set the ID explicitly!
+        shop_name: shopName.trim(),
+        gst_number: finalGst,
+        shop_type: 'retail',
+        phone: phone?.trim() || '',
+        email: normalizedEmail,
+        address_line1: address?.trim() || ''
+      })
+      .select()
+      .single();
 
-      newShopCreated = true;
-      shopIdToUse = newShop.id;
-      shopObject = newShop;
-      console.log(`[Signup Flow] Shop created successfully. ID: ${shopIdToUse}`);
-    } else {
-      // Validate that the existing shop ID exists
-      const { data: existingShop, error: shopErr } = await supabase
-        .from('shop')
-        .select('*')
-        .eq('id', shopIdToUse)
-        .maybeSingle();
-
-      if (shopErr || !existingShop) {
-        console.error(`[Signup Flow] Existing shop validation failed for ID ${shopIdToUse}:`, shopErr?.message);
-        return res.status(400).json({
-          success: false,
-          message: 'Specified shop association does not exist.'
-        });
-      }
-      shopObject = existingShop;
-      console.log(`[Signup Flow] Associated staff with existing Shop ID: ${shopIdToUse}`);
+    if (shopInsertErr || !newShop) {
+      console.error('[Signup Flow] Shop creation failed:', shopInsertErr?.message || 'No data returned');
+      return res.status(500).json({
+        success: false,
+        message: `Failed to create shop context: ${shopInsertErr?.message || 'Unknown error'}`
+      });
     }
+
+    newShopCreated = true;
+    shopObject = newShop;
+    console.log(`[Signup Flow] Shop created successfully. ID: ${shopIdToUse}`);
 
     // Step B: Create Supabase Auth User
     console.log(`[Signup Flow] Creating Supabase Auth user for email: ${normalizedEmail}`);
@@ -178,7 +152,7 @@ export const signup = async (req, res, next) => {
     if (authCreateErr || !authData?.user) {
       console.error('[Signup Flow] Supabase Auth user creation failed:', authCreateErr?.message || 'No auth user data returned');
       
-      // Rollback shop if newly created
+      // Rollback shop if newly created (if shop insert fails/user creation fails -> rollback shop creation)
       if (newShopCreated) {
         console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${shopIdToUse})`);
         await supabase.from('shop').delete().eq('id', shopIdToUse);
@@ -213,7 +187,7 @@ export const signup = async (req, res, next) => {
     if (profileInsertErr || !profile) {
       console.error('[Signup Flow] Profile creation failed:', profileInsertErr?.message || 'No profile data returned');
 
-      // Rollback Shop if newly created
+      // if user insert fails → rollback shop creation
       if (newShopCreated) {
         console.log(`[Signup Flow] Rolling back shop creation (deleting Shop ID: ${shopIdToUse})`);
         const { error: shopRollbackErr } = await supabase.from('shop').delete().eq('id', shopIdToUse);
@@ -222,7 +196,7 @@ export const signup = async (req, res, next) => {
         }
       }
 
-      // Rollback Auth User
+      // if user insert fails → rollback user creation
       console.log(`[Signup Flow] Rolling back Auth User creation (deleting Auth User ID: ${authUserId})`);
       const { error: authRollbackErr } = await supabase.auth.admin.deleteUser(authUserId);
       if (authRollbackErr) {
@@ -234,6 +208,14 @@ export const signup = async (req, res, next) => {
         message: `Database profile synchronization failed: ${profileInsertErr?.message || 'Unknown error'}`
       });
     }
+
+    const user = profile;
+
+    // Logging requirement:
+    // console.log("CREATED SHOP ID:", shopId)
+    // console.log("USER SHOP ID:", user.shop_id)
+    console.log("CREATED SHOP ID:", shopIdToUse);
+    console.log("USER SHOP ID:", user.shop_id);
 
     console.log(`[Signup Flow] Profile row successfully created and mapped for ID: ${authUserId}`);
     console.log(`[Signup Flow] Unified signup completed successfully for: ${normalizedEmail}`);
@@ -251,6 +233,53 @@ export const signup = async (req, res, next) => {
     return res.status(500).json({
       success: false,
       message: 'A critical unexpected error occurred during signup.'
+    });
+  }
+};
+
+/**
+ * Handles backend authentication/login.
+ * Exposes a production-safe public endpoint matching standard credentials.
+ */
+export const login = async (req, res, next) => {
+  console.log("AUTH ROUTE HIT");
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Email and password are required.'
+    });
+  }
+
+  try {
+    // Create a transient client to prevent polluting the global supabase client's auth state
+    const authClient = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      auth: { persistSession: false }
+    });
+    const { data, error } = await authClient.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password
+    });
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Login successful!',
+      user: data.user,
+      session: data.session
+    });
+  } catch (err) {
+    console.error('[Login Flow] Critical exception:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'An unexpected error occurred during login.'
     });
   }
 };

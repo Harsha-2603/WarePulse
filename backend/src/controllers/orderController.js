@@ -69,74 +69,101 @@ export const updatePurchase = async (req, res) => {
 };
 
 export const createOrder = async (req, res) => {
+  const shopId = extractShopId(req);
+  console.log(`[orderController] POST /api/orders received. shop_id: ${shopId}, body:`, JSON.stringify(req.body));
+
   try {
-    const shopId = extractShopId(req);
-    if (!shopId) return res.status(400).json({ success: false, message: 'shop_id is required' });
+    if (!shopId) {
+      console.warn("[orderController] Rejected: missing shop_id");
+      return res.status(400).json({ success: false, message: 'shop_id is required' });
+    }
 
     const payload = { ...req.body, shop_id: shopId };
     const order = await orderService.createOrder(payload);
     
+    console.log(`[orderController] Successfully created order ID: ${order.id}`);
     return res.status(201).json(order);
   } catch (error) {
-    return res.status(error.message.includes('stock') ? 400 : 500).json({ success: false, message: error.message });
+    console.error("[orderController] Error creating order:", error.message);
+    const statusCode = error.message.toLowerCase().includes('stock') || error.message.toLowerCase().includes('exist') ? 400 : 500;
+    return res.status(statusCode).json({ success: false, message: error.message });
   }
 };
 
 export const getOrders = async (req, res) => {
-  try {
-    const shopId = extractShopId(req);
-    if (!shopId) return res.status(400).json({ success: false, message: 'shop_id is required' });
+  const shopId = extractShopId(req);
+  console.log(`[orderController] GET /api/orders received. shop_id: ${shopId}`);
 
-    const orders = await orderService.getAllOrders(shopId);
+  try {
+    if (!shopId) {
+      console.warn("[orderController] Rejected: missing shop_id");
+      return res.status(400).json({ success: false, message: 'shop_id is required' });
+    }
+
+    const page = req.query.page ? parseInt(req.query.page) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit) : null;
+
+    const orders = await orderService.getAllOrders(shopId, page, limit);
+    console.log(`[orderController] Returning ${orders.length} orders for shop ID ${shopId}`);
     return res.status(200).json(orders);
   } catch (error) {
-    const isVal = error.message.toLowerCase().includes('require') || error.message.toLowerCase().includes('invalid') || error.message.includes('stock') || error.message.includes('allow') || error.message.includes('negative');
+    console.error("[orderController] Error fetching orders:", error.message);
+    const isVal = error.message.toLowerCase().includes('require') || error.message.toLowerCase().includes('invalid');
     return res.status(isVal ? 400 : 500).json({ success: false, message: error.message });
   }
 };
 
 export const getOrder = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const shopId = extractShopId(req);
+  const { id } = req.params;
+  const shopId = extractShopId(req);
+  console.log(`[orderController] GET /api/orders/${id} received. shop_id: ${shopId}`);
 
+  try {
     if (!id) return res.status(400).json({ success: false, message: 'Order id is required' });
     if (!shopId) return res.status(400).json({ success: false, message: 'shop_id is required' });
 
     const order = await orderService.getOrderById(id, shopId);
+    console.log(`[orderController] Returning details for order ID ${id}`);
     return res.status(200).json(order);
   } catch (error) {
+    console.error(`[orderController] Error fetching order ID ${id}:`, error.message);
     return res.status(404).json({ success: false, message: error.message });
   }
 };
 
 export const updateOrder = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const shopId = extractShopId(req);
+  const { id } = req.params;
+  const shopId = extractShopId(req);
+  console.log(`[orderController] PUT /api/orders/${id} received. shop_id: ${shopId}, body:`, JSON.stringify(req.body));
 
+  try {
     if (!id) return res.status(400).json({ success: false, message: 'Order id is required' });
     if (!shopId) return res.status(400).json({ success: false, message: 'shop_id is required' });
 
     const updated = await orderService.updateSale(id, shopId, req.body);
+    console.log(`[orderController] Successfully updated order ID: ${id}`);
     return res.status(200).json(updated);
   } catch (error) {
-    const isVal = error.message.toLowerCase().includes('require') || error.message.toLowerCase().includes('invalid') || error.message.includes('stock');
+    console.error(`[orderController] Error updating order ID ${id}:`, error.message);
+    const isVal = error.message.toLowerCase().includes('require') || error.message.toLowerCase().includes('invalid') || error.message.toLowerCase().includes('stock');
     return res.status(isVal ? 400 : 500).json({ success: false, message: error.message });
   }
 };
 
 export const deleteOrder = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const shopId = extractShopId(req);
+  const { id } = req.params;
+  const shopId = extractShopId(req);
+  console.log(`[orderController] DELETE /api/orders/${id} received. shop_id: ${shopId}`);
 
+  try {
     if (!id) return res.status(400).json({ success: false, message: 'Order id is required' });
     if (!shopId) return res.status(400).json({ success: false, message: 'shop_id is required' });
 
     const result = await orderService.deleteSale(id, shopId);
+    console.log(`[orderController] Successfully deleted order ID: ${id}`);
     return res.status(200).json(result);
   } catch (error) {
+    console.error(`[orderController] Error deleting order ID ${id}:`, error.message);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

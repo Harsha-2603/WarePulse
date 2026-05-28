@@ -11,31 +11,25 @@ const mapInbound = (item) => ({
   name: item.product_name,
   variety: item.variety,
   unit: item.unit,
+  unitId: item.unit_id,
   purchasePrice: item.purchase_price,
   sellingPrice: item.selling_price,
   supplier: item.vendor_name || item.supplier,
   stockQuantity: item.stock_quantity,
   stock: item.stock_quantity, // support both aliases
   lastUpdated: item.updated_at || item.last_updated,
-  minStockLevel: item.min_stock_level,
-  shop_id: item.shop_id
+  minStockLevel: item.min_stock_level
 });
 
 const mapOutbound = (item) => {
-  const shopId = item.shop_id || localStorage.getItem('shop_id');
-  
   const rawPayload = {
     product_name: item.name || item.product_name,
-    vendor_name: item.supplier || item.vendor_name,
-    unit_id: item.unit || item.unit_id,
+    vendor_name: item.supplier || item.vendorName || item.vendor_name || null,
+    unit_id: item.unitId || item.unit_id || null,
     stock_quantity: Number(item.stock) || Number(item.stockQuantity) || 0,
     purchase_price: Number(item.purchasePrice) || 0,
     selling_price: Number(item.sellingPrice) || 0
   };
-
-  if (shopId && shopId !== '00000000-0000-0000-0000-000000000000') {
-    rawPayload.shop_id = shopId;
-  }
 
   const filteredPayload = Object.fromEntries(
     Object.entries(rawPayload).filter(([_, v]) => v !== undefined && v !== null && v !== '')
@@ -60,7 +54,7 @@ const productService = {
   // POST new product
   createProduct: async (productData) => {
     const payload = mapOutbound(productData);
-    console.log("FINAL PAYLOAD:", payload);
+    console.log("Submitting product:", payload);
     const { data } = await api.post('/products', payload);
     return mapInbound(data);
   },
@@ -68,8 +62,7 @@ const productService = {
   // PUT update existing product
   updateProduct: async (id, productData) => {
     const payload = mapOutbound(productData);
-    console.log("REAL SHOP ID:", payload.shop_id);
-    console.log("FINAL UPDATE PAYLOAD:", payload);
+    console.log("Submitting product:", payload);
     const { data: response } = await api.put(`/products/${id}`, payload);
     console.log("UPDATE RESPONSE:", response);
     return mapInbound(response);
@@ -78,6 +71,12 @@ const productService = {
   // DELETE product
   deleteProduct: async (id) => {
     const { data } = await api.delete(`/products/${id}`);
+    return data;
+  },
+
+  // BULK IMPORT CSV
+  importProducts: async (csvData) => {
+    const { data } = await api.post('/products/import', { csv_data: csvData });
     return data;
   }
 };

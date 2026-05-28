@@ -104,14 +104,14 @@ export const AuthProvider = ({ children }) => {
           setUser(mappedUser);
           setSession(currentSession);
           setShop(shopData);
-          setRole(profile.role);
+          setRole('owner');
 
           // Save to localStorage for api.js compatibility
           localStorage.setItem('userId', auth_user_id);
           if (profile.shop_id) {
             localStorage.setItem('shopId', profile.shop_id);
           }
-          localStorage.setItem('userRole', profile.role || 'staff');
+          localStorage.setItem('userRole', 'owner');
           localStorage.setItem('accessToken', currentSession.access_token);
 
           console.log("AUTH LOADING COMPLETE");

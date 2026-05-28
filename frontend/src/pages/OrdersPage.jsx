@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus } from 'lucide-react';
 import Button from '../components/ui/Button';
 import SearchBar from '../components/ui/SearchBar';
@@ -9,7 +9,35 @@ import OrdersTable from '../features/orders/OrdersTable';
 import ViewOrderModal from '../features/orders/ViewOrderModal';
 import { useOrders } from '../contexts/OrderContext';
 import { useInventory } from '../contexts/InventoryContext';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
+
+const TableSkeleton = () => {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden text-center sm:text-left">
+      <div className="border-b border-slate-200 bg-slate-50/50 p-4">
+        <div className="h-6 w-1/4 bg-slate-200 rounded animate-pulse"></div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {[1, 2, 3, 4, 5].map((idx) => (
+          <div key={idx} className="p-4 flex flex-col sm:flex-row items-center justify-between gap-4 animate-pulse">
+            <div className="flex-1 space-y-2 w-full text-left">
+              <div className="h-4 w-1/3 bg-slate-200 rounded"></div>
+              <div className="h-3 w-1/5 bg-slate-100 rounded"></div>
+            </div>
+            <div className="w-full sm:w-1/4 text-left">
+              <div className="h-4 w-1/2 bg-slate-200 rounded"></div>
+            </div>
+            <div className="w-full sm:w-1/6 text-left">
+              <div className="h-4 w-3/4 bg-slate-200 rounded"></div>
+            </div>
+            <div className="w-full sm:w-12 flex justify-end">
+              <div className="h-8 w-8 bg-slate-200 rounded-lg"></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const OrdersPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -18,43 +46,47 @@ const OrdersPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Use global context instead of local mock data
-  const { orders = [], updateOrderStatus, isLoading } = useOrders() || {};
+  const { orders = [], updateOrderStatus, isLoading, error } = useOrders() || {};
 
   const handleViewOrder = (order) => {
     setSelectedOrder(order);
     setIsViewModalOpen(true);
   };
 
-  const filteredOrders = (orders || []).filter(order => {
-    const matchesSearch = order.id.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          order.customer.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || order.status.toLowerCase() === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredOrders = useMemo(() => {
+    console.log("[OrdersPage] Filtering orders list. Total orders in context:", orders.length);
+    return (orders || []).filter(order => {
+      if (!order || !order.id) return false;
+      const orderId = String(order.id).toLowerCase();
+      const customer = String(order.customer || order.customer_name || '').toLowerCase();
+      const matchesSearch = orderId.includes(searchQuery.toLowerCase()) || 
+                            customer.includes(searchQuery.toLowerCase());
+      const status = String(order.status || order.sale_status || '').toLowerCase();
+      const matchesStatus = statusFilter === 'all' || status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [orders, searchQuery, statusFilter]);
 
-  const getStatusBadge = (status) => {
-    switch (status) {
-      case 'Completed': return <Badge variant="success">Completed</Badge>;
-      case 'Processing': return <Badge variant="primary">Processing</Badge>;
-      case 'Pending': return <Badge variant="warning">Pending</Badge>;
-      default: return <Badge variant="gray">{status}</Badge>;
-    }
-  };
+  console.log(`[OrdersPage] Rendering. Loading state: ${isLoading}, Orders count: ${filteredOrders.length}`);
 
   const handleExportCSV = () => {
-    if (orders.length === 0) return;
+    if (filteredOrders.length === 0) return;
     
     const headers = ['Order ID', 'Customer', 'Date', 'Amount', 'Status', 'Variety', 'Quantity'];
-    const rows = filteredOrders.map(order => [
-      order.id,
-      order.customer,
-      order.date,
-      order.amount,
-      order.status,
-      order.variety || 'N/A',
-      order.items || 0
-    ]);
+    const rows = filteredOrders.map(order => {
+      const itemsCount = Array.isArray(order.items) 
+        ? order.items.length 
+        : (order.item_count || order.items || 0);
+      return [
+        order.id,
+        order.customer || order.customer_name || 'N/A',
+        order.date || order.created_at?.split('T')[0] || 'N/A',
+        order.amount || order.total_amount || 0,
+        order.status || order.sale_status || 'N/A',
+        order.variety || 'N/A',
+        itemsCount
+      ];
+    });
     
     const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -127,10 +159,19 @@ const OrdersPage = () => {
       </div>
 
       {/* Orders Content */}
-      {isLoading ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-20 flex items-center justify-center">
-          <LoadingSpinner size="lg" text="Fetching order records..." />
+      {error ? (
+        <div className="bg-red-50 rounded-xl border border-red-200 p-6 text-center">
+          <p className="text-red-700 font-medium">Failed to load orders: {error}</p>
+          <Button 
+            variant="outline" 
+            className="mt-3 border-red-300 text-red-700 hover:bg-red-100/50 bg-white"
+            onClick={() => window.location.reload()}
+          >
+            Retry Loading
+          </Button>
         </div>
+      ) : isLoading ? (
+        <TableSkeleton />
       ) : (
         <OrdersTable 
           orders={filteredOrders} 

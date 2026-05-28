@@ -89,6 +89,12 @@ export const InventoryProvider = ({ children }) => {
     }
   };
 
+  const refreshInventory = useCallback(() => {
+    if (shop?.id) {
+      fetchProducts(shop.id);
+    }
+  }, [shop?.id, fetchProducts]);
+
   return (
     <InventoryContext.Provider value={{ 
       inventoryItems, 
@@ -97,7 +103,7 @@ export const InventoryProvider = ({ children }) => {
       deleteInventoryItem, 
       isLoading,
       error,
-      refreshInventory: fetchProducts
+      refreshInventory
     }}>
       {children}
     </InventoryContext.Provider>

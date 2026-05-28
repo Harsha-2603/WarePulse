@@ -348,119 +348,251 @@ export const generateInvoiceIfCompleted = async (sale, shopId) => {
   return invoice;
 };
 
-// ---- OLD LEGACY ORDER FUNCTIONS (retained) ----
+// ---- NEW REFACTORED ORDER FUNCTIONS ----
+
+/**
+ * Standard mapper to construct the consistent API response structure
+ * and attach legacy properties to ensure perfect frontend visual compatibility.
+ */
+const mapOrderResponse = (s) => {
+  if (!s) return null;
+
+  // Map nested order items
+  const itemsList = (s.sale_item || []).map(item => ({
+    id: item.id,
+    product_id: item.product_id,
+    product_name: item.product?.product_name || 'Unknown Product',
+    name: item.product?.product_name || 'Unknown Product', // frontend compatibility
+    quantity: Number(item.quantity) || 0,
+    qty: Number(item.quantity) || 0, // frontend compatibility
+    unit: item.unit || 'unit',
+    price_per_unit: Number(item.price_per_unit) || 0,
+    price: Number(item.price_per_unit) || 0, // frontend compatibility
+    tax_percentage: Number(item.tax_percentage) || 0,
+    tax_amount: Number(item.tax_amount) || 0,
+    line_total: Number(item.line_total) || 0,
+    total: Number(item.line_total) || 0 // frontend compatibility
+  }));
+
+  const customerName = s.customer?.customer_name || 'Walk-in Customer';
+  const totalAmount = Number(s.total_amount) || 0;
+  const paymentStatus = s.payment_status || 'pending';
+  const saleStatus = s.sale_status || 'pending';
+  const createdAt = s.created_at || s.sale_date || new Date().toISOString();
+  
+  // Format date as YYYY-MM-DD
+  const formattedDate = s.sale_date ? s.sale_date.split('T')[0] : (createdAt ? createdAt.split('T')[0] : '');
+
+  // Calculate total items count
+  const itemCount = itemsList.reduce((sum, item) => sum + item.quantity, 0);
+
+  return {
+    id: s.id,
+    customer_name: customerName,
+    customer: customerName, // frontend compatibility
+    total_amount: totalAmount,
+    amount: totalAmount, // frontend compatibility
+    payment_status: paymentStatus,
+    paymentStatus: paymentStatus.charAt(0).toUpperCase() + paymentStatus.slice(1), // e.g. "Paid", "Pending"
+    sale_status: saleStatus,
+    status: saleStatus.charAt(0).toUpperCase() + saleStatus.slice(1), // e.g. "Completed", "Pending", "Processing" for frontend
+    created_at: createdAt,
+    date: formattedDate, // frontend compatibility
+    items: itemsList,
+    itemDetails: itemsList, // frontend compatibility
+    item_count: itemCount, // frontend compatibility
+    invoice_number: s.invoice_number,
+    delivery_date: s.delivery_date,
+    notes: s.notes
+  };
+};
 
 export const createOrder = async (orderData) => {
-  console.log("FINAL ORDER PAYLOAD", JSON.stringify(orderData));
-  console.log("RAW ORDER DATA RECEIVED:", orderData);
-
-  const { shop_id, customer_id, delivery_date, notes, products } = orderData;
+  console.log("[orderService] Incoming createOrder payload:", JSON.stringify(orderData));
+  
+  const { shop_id, customer_id, delivery_date, notes, products, items } = orderData;
 
   if (!shop_id) throw new Error('shop_id is required');
   if (!customer_id) throw new Error('customer_id is required');
-  if (!products || !Array.isArray(products) || products.length === 0) {
-    throw new Error('At least one product is required');
+  
+  // Accept both 'items' and 'products' for robust compatibility
+  const orderItemsInput = items || products;
+  
+  console.log("[orderService] Received items for creation:", JSON.stringify(orderItemsInput));
+  
+  if (!orderItemsInput || !Array.isArray(orderItemsInput) || orderItemsInput.length === 0) {
+    throw new Error('At least one product item is required');
   }
 
-  // Step D: Validation
-  // 1. Verify Customer exists
+  // 1. Prevent duplicate order submissions within the last 10 seconds
+  const tenSecondsAgo = new Date(Date.now() - 10000).toISOString();
+  const { data: duplicateCheck, error: duplicateCheckErr } = await supabase
+    .from('sale')
+    .select('id')
+    .eq('shop_id', shop_id)
+    .eq('customer_id', customer_id)
+    .eq('notes', notes || null)
+    .gt('created_at', tenSecondsAgo)
+    .limit(1);
+
+  if (duplicateCheckErr) {
+    console.error("[orderService] Duplicate check lookup error:", duplicateCheckErr.message);
+  } else if (duplicateCheck && duplicateCheck.length > 0) {
+    console.warn("[orderService] Rejected duplicate order submission detected within 10 seconds.");
+    throw new Error("Duplicate order submission detected. Please wait a moment before trying again.");
+  }
+
+  console.log(`[orderService] Starting order validation. shop_id: ${shop_id}, customer_id: ${customer_id}`);
+
+  // 2. Verify Customer exists inside THIS shop
   const { data: customer, error: customerError } = await supabase
     .from('customer')
-    .select('id')
+    .select('id, customer_name')
     .eq('id', customer_id)
+    .eq('shop_id', shop_id)
     .maybeSingle();
 
   if (customerError) {
-    console.log("EXACT SUPABASE ERROR", customerError.message);
+    console.error("[orderService] Customer verification query error:", customerError.message);
     throw new Error(`Customer verification failed: ${customerError.message}`);
   }
-  if (!customer) throw new Error(`Customer ${customer_id} does not exist.`);
-
-  // 2. Verify Products & Quantity
-  for (const p of products) {
-    const currentStock = await getCurrentStock(p.product_id, shop_id);
-    if (currentStock < Number(p.quantity)) {
-      throw new Error(`Only ${currentStock} available for this product.`);
-    }
+  if (!customer) {
+    console.error(`[orderService] Customer lookup failed. Customer ${customer_id} does not exist in shop ${shop_id}`);
+    throw new Error(`Customer does not exist in your shop.`);
   }
 
-  // Step A: Insert into sale
-  const { count } = await supabase
-    .from('sale')
-    .select('*', { count: 'exact', head: true })
-    .eq('shop_id', shop_id);
-
-  const invoice_number = `INV-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(3, '0')}`;
-
+  // 3. Resolve and securely calculate totals on the backend using database product prices
   let computedSubtotal = 0;
   let computedTax = 0;
+  const parsedItems = [];
+  const productCache = {}; // Cache to store fetched product records to avoid repeated queries
 
-  const parsedItems = products.map(p => {
-    const qty = Number(p.quantity) || 0;
-    const price = Number(p.price_per_unit) || 0;
-    const taxPct = Number(p.tax_percentage || 0);
+  for (const item of orderItemsInput) {
+    if (!item.product_id) {
+      throw new Error('product_id is required for each order item');
+    }
+    
+    // Ensure quantity is positive
+    const qty = Number(item.quantity);
+    if (isNaN(qty) || qty <= 0) {
+      throw new Error(`Quantity must be greater than zero for product ID: ${item.product_id}`);
+    }
 
-    const line_subtotal = qty * price;
+    // Verify Product exists in THIS shop and fetch selling_price securely (using local cache if available)
+    let product = productCache[item.product_id];
+    if (!product) {
+      const { data, error: productError } = await supabase
+        .from('product')
+        .select('id, product_name, selling_price')
+        .eq('id', item.product_id)
+        .eq('shop_id', shop_id)
+        .maybeSingle();
+
+      if (productError || !data) {
+        console.error(`[orderService] Product not found in shop: ${item.product_id}`);
+        throw new Error(`Product not found or does not exist in your shop.`);
+      }
+      product = data;
+      productCache[item.product_id] = product; // populate cache
+    }
+
+    // Validate selling_price
+    const sellingPrice = Number(product.selling_price);
+    if (isNaN(sellingPrice) || sellingPrice < 0) {
+      throw new Error(`Invalid selling price for product: ${product.product_name}`);
+    }
+
+    // Verify stock availability
+    const currentStock = await getCurrentStock(item.product_id, shop_id);
+    console.log(`[orderService] Stock before update for product ${product.product_name} (${item.product_id}) is: ${currentStock}`);
+    
+    if (currentStock < qty) {
+      console.error(`[orderService] Stock mismatch for product ${product.product_name}: current=${currentStock}, requested=${qty}`);
+      throw new Error(`Only ${currentStock} stock available for product ${product.product_name}.`);
+    }
+
+    const taxPct = Number(item.tax_percentage || 5);
+    const line_subtotal = qty * sellingPrice;
     const line_tax = line_subtotal * (taxPct / 100);
     const line_total = line_subtotal + line_tax;
 
     computedSubtotal += line_subtotal;
     computedTax += line_tax;
 
-    return {
+    parsedItems.push({
       shop_id,
-      product_id: p.product_id,
+      product_id: item.product_id,
       quantity: qty,
-      unit: p.unit || 'unit',
-      price_per_unit: price,
+      unit: item.unit || 'bags',
+      price_per_unit: sellingPrice, // Securely calculated on the backend
       tax_percentage: taxPct,
       tax_amount: line_tax,
       line_total
-    };
-  });
+    });
+  }
 
   const subtotal = computedSubtotal;
   const tax_amount = computedTax;
   const total_amount = subtotal + tax_amount;
 
+  console.log(`[orderService] Securely calculated final totals - Subtotal: ${subtotal}, Tax Amount: ${tax_amount}, Total Amount: ${total_amount}`);
+
+  // 4. Resolve invoice sequence count for this shop
+  const { count, error: countError } = await supabase
+    .from('sale')
+    .select('*', { count: 'exact', head: true })
+    .eq('shop_id', shop_id);
+
+  if (countError) {
+    console.error("[orderService] Sequence count fetch failed:", countError.message);
+    throw new Error(`Failed to generate invoice sequence: ${countError.message}`);
+  }
+
+  const invoice_number = `ORD-${new Date().getFullYear()}-${String((count || 0) + 1).padStart(4, '0')}`;
+
   const salePayload = {
     shop_id,
     customer_id,
     sale_date: new Date().toISOString().split("T")[0],
-    delivery_date,
-    invoice_number: `ORD-${Date.now()}`,
+    delivery_date: delivery_date || null,
+    invoice_number,
     subtotal,
     discount_amount: 0,
     tax_amount,
     total_amount,
     sale_status: "confirmed",
     payment_status: "pending",
-    notes
+    notes: notes || null
   };
 
-  console.log("FINAL SALE INSERT PAYLOAD:", salePayload);
-  console.log("SALE STATUS VALUE:", salePayload.sale_status);
-  console.log("PAYMENT STATUS VALUE:", salePayload.payment_status);
+  console.log("[orderService] Inserting sale header first:", JSON.stringify(salePayload));
 
-  const { data: sale, error: saleError } = await supabase
-    .from('sale')
-    .insert([salePayload])
-    .select()
-    .single();
-
-  if (saleError) {
-    console.log("EXACT SUPABASE ERROR", saleError.message);
-    throw new Error(`Failed to create sale record: ${saleError.message}`);
-  }
-  
-  console.log("SALE INSERT RESPONSE", JSON.stringify(sale));
+  let sale = null;
+  const adjustedStocks = []; // Track adjusted stocks to roll back on failure
 
   try {
-    // Step C: Loop through products and insert sale_item
+    // 5. Create order master row first
+    const { data: insertedSale, error: saleError } = await supabase
+      .from('sale')
+      .insert([salePayload])
+      .select()
+      .single();
+
+    if (saleError) {
+      console.error("[orderService] Sale header insert failed:", saleError.message);
+      throw new Error(`Failed to create sale record: ${saleError.message}`);
+    }
+    
+    sale = insertedSale;
+    console.log("[orderService] Sale header inserted successfully:", JSON.stringify(sale));
+
+    // 6. Create all order_items using order_id
     const finalItems = parsedItems.map(item => ({
       ...item,
       sale_id: sale.id
     }));
+
+    console.log("[orderService] Inserting sale items:", JSON.stringify(finalItems));
 
     const { data: itemsResponse, error: itemsError } = await supabase
       .from('sale_item')
@@ -468,16 +600,18 @@ export const createOrder = async (orderData) => {
       .select();
 
     if (itemsError) {
-      console.log("EXACT SUPABASE ERROR", itemsError.message);
+      console.error("[orderService] Sale items insert failed:", itemsError.message);
       throw new Error(`Failed to create sale items: ${itemsError.message}`);
     }
 
-    console.log("SALE ITEM INSERT RESPONSE", JSON.stringify(itemsResponse));
+    console.log("[orderService] Sale items inserted successfully:", JSON.stringify(itemsResponse));
 
-    // Step E & F: inventory update
+    // 7. Deduct inventory stock safely
     for (const item of finalItems) {
       const newStock = await reduceStock(item.product_id, shop_id, item.quantity);
-      console.log("INVENTORY UPDATE RESPONSE", `Product ${item.product_id} remaining: ${newStock}`);
+      console.log(`[orderService] Stock after update for product ${item.product_id} is: ${newStock}`);
+      
+      adjustedStocks.push({ product_id: item.product_id, quantity: item.quantity });
 
       await logStockChange({
         product_id: item.product_id,
@@ -489,46 +623,91 @@ export const createOrder = async (orderData) => {
     }
 
     await generateInvoiceIfCompleted(sale, shop_id);
-    return sale;
+    
+    // Fetch and return the fully joined created order response
+    return getOrderById(sale.id, shop_id);
   } catch (err) {
-    // Step G: Rollback
-    console.log("ROLLING BACK SALE DUE TO FAILURE");
-    await supabase.from('sale').delete().eq('id', sale.id);
+    // 8. Rollback order creation upon failure
+    console.error("[orderService] Programmatic transaction-like rollback initiated due to error:", err.message);
+    
+    // Rollback stock updates
+    for (const adj of adjustedStocks) {
+      try {
+        console.log(`[orderService] Rolling back stock reduction for product ${adj.product_id}: adding back ${adj.quantity}`);
+        await increaseStock(adj.product_id, shop_id, adj.quantity);
+      } catch (rollbackStockErr) {
+        console.error(`[orderService] CRITICAL: Failed to rollback stock deduction for product ${adj.product_id}:`, rollbackStockErr.message);
+      }
+    }
+
+    // Rollback sale header insert
+    if (sale && sale.id) {
+      try {
+        console.log(`[orderService] Rolling back order insert: deleting sale header ${sale.id}`);
+        const { error: rollbackError } = await supabase
+          .from('sale')
+          .delete()
+          .eq('id', sale.id)
+          .eq('shop_id', shop_id);
+
+        if (rollbackError) {
+          console.error("[orderService] CRITICAL: Programmatic rollback deletion failed!", rollbackError.message);
+        } else {
+          console.log("[orderService] Programmatic rollback deletion succeeded. Orphaned sale header removed.");
+        }
+      } catch (rollbackSaleErr) {
+        console.error("[orderService] CRITICAL: Exception during sale header rollback deletion:", rollbackSaleErr.message);
+      }
+    }
+    
     throw err;
   }
 };
 
-export const getAllOrders = async (shopId) => {
-  const { data, error } = await supabase
+export const getAllOrders = async (shopId, page = null, limit = null) => {
+  if (!shopId) throw new Error('shop_id is required');
+  
+  let query = supabase
     .from('sale')
     .select(`
       *,
-      customer(id, customer_name),
-      sale_item(id, quantity)
+      customer(id, customer_name, email, phone, address),
+      sale_item(
+        *,
+        product(id, product_name, vendor_name)
+      )
     `)
     .eq('shop_id', shopId)
-    .order('sale_date', { ascending: false });
+    .order('created_at', { ascending: false });
+
+  if (page !== null && limit !== null) {
+    const from = (page - 1) * limit;
+    const to = from + limit - 1;
+    console.log(`[orderService] Fetching orders with range pagination. shopId: ${shopId}, page: ${page}, limit: ${limit}, range: [${from}, ${to}]`);
+    query = query.range(from, to);
+  } else {
+    console.log(`[orderService] Fetching all orders (no pagination). shopId: ${shopId}`);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
-    console.log("EXACT SUPABASE ERROR", error.message);
+    console.error("[orderService] Fetch error in getAllOrders:", error.message);
     throw new Error(`Failed to fetch orders: ${error.message}`);
   }
 
-  const formatted = (data || []).map(s => ({
-    id: s.id,
-    order_number: s.invoice_number,
-    customer_name: s.customer?.customer_name || 'Walk-in Customer',
-    date: s.sale_date ? s.sale_date.split('T')[0] : '',
-    amount: s.total_amount,
-    status: s.sale_status,
-    item_count: (s.sale_item || []).reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
-  }));
+  const fetchCount = data ? data.length : 0;
+  console.log(`[orderService] Fetched ${fetchCount} order records.`);
 
-  console.log("GET ORDERS RESPONSE", JSON.stringify(formatted));
-  return formatted;
+  const mappedData = (data || []).map(order => mapOrderResponse(order));
+  return mappedData;
 };
 
 export const getOrderById = async (id, shopId) => {
+  if (!id) throw new Error('Order id is required');
+  if (!shopId) throw new Error('shop_id is required');
+  console.log(`[orderService] Fetching order ID: ${id} for shop: ${shopId}`);
+
   const { data, error } = await supabase
     .from('sale')
     .select(`
@@ -541,17 +720,27 @@ export const getOrderById = async (id, shopId) => {
     `)
     .eq('id', id)
     .eq('shop_id', shopId)
-    .single();
+    .maybeSingle();
 
-  if (error) throw new Error(`Failed to find order: ${error.message}`);
-  return data;
+  if (error) {
+    console.error(`[orderService] Fetch error in getOrderById for order ID ${id}:`, error.message);
+    throw new Error(`Failed to find order: ${error.message}`);
+  }
+  if (!data) {
+    console.error(`[orderService] Order ID ${id} not found under shop ${shopId}`);
+    throw new Error(`Order not found.`);
+  }
+
+  return mapOrderResponse(data);
 };
 
 export const updateSale = async (id, shopId, updateData) => {
-  const { customer_id, delivery_date, notes, payment_status, sale_status, products } = updateData;
-
+  console.log(`[orderService] Incoming updateSale payload for order ${id}:`, JSON.stringify(updateData));
+  
   if (!id) throw new Error('id is required');
   if (!shopId) throw new Error('shop_id is required');
+
+  const { customer_id, delivery_date, notes, payment_status, sale_status, products } = updateData;
 
   // 1. Fetch existing items
   const { data: oldItems, error: oldItemsError } = await supabase
@@ -560,10 +749,14 @@ export const updateSale = async (id, shopId, updateData) => {
     .eq('sale_id', id)
     .eq('shop_id', shopId);
 
-  if (oldItemsError) throw new Error(`Failed to query old items: ${oldItemsError.message}`);
+  if (oldItemsError) {
+    console.error("[orderService] Failed to fetch old items for update:", oldItemsError.message);
+    throw new Error(`Failed to query old items: ${oldItemsError.message}`);
+  }
 
   // 2. Restore inventory quantities temporarily ONLY if products are being updated
   if (products && Array.isArray(products) && products.length > 0) {
+    console.log("[orderService] Temporarily restoring stock levels for update validation...");
     for (const item of oldItems) {
       await increaseStock(item.product_id, shopId, item.quantity);
     }
@@ -625,6 +818,8 @@ export const updateSale = async (id, shopId, updateData) => {
       updatePayload.total_amount = total_amount;
     }
 
+    console.log("[orderService] Updating sale header:", JSON.stringify(updatePayload));
+
     const { data: sale, error: updateError } = await supabase
       .from('sale')
       .update(updatePayload)
@@ -635,15 +830,20 @@ export const updateSale = async (id, shopId, updateData) => {
 
     if (updateError) throw new Error(`Failed to update order header: ${updateError.message}`);
 
+    console.log("[orderService] Sale header updated successfully:", JSON.stringify(sale));
+
     // 6. Swap sale_item rows if requested
     if (products && products.length > 0) {
+      console.log("[orderService] Deleting old items for order:", id);
       const { error: deleteError } = await supabase
         .from('sale_item')
         .delete()
-        .eq('sale_id', id);
+        .eq('sale_id', id)
+        .eq('shop_id', shopId); // Strict tenant isolation!
 
       if (deleteError) throw new Error(`Failed to clean old items: ${deleteError.message}`);
 
+      console.log("[orderService] Inserting new items for order:", id);
       const { error: insertError } = await supabase
         .from('sale_item')
         .insert(parsedItems);
@@ -665,10 +865,11 @@ export const updateSale = async (id, shopId, updateData) => {
     }
 
     await generateInvoiceIfCompleted(sale, shopId);
-    return sale;
+    return getOrderById(id, shopId);
   } catch (err) {
     // ROLLBACK restore quantities ONLY if products were passed
     if (products && Array.isArray(products) && products.length > 0) {
+      console.error("[orderService] Error occurred during update. Rolling back stock reductions...", err.message);
       for (const item of oldItems) {
         await reduceStock(item.product_id, shopId, item.quantity);
       }
@@ -680,16 +881,19 @@ export const updateSale = async (id, shopId, updateData) => {
 export const deleteSale = async (id, shopId) => {
   if (!id) throw new Error('id is required');
   if (!shopId) throw new Error('shop_id is required');
+  console.log(`[orderService] Starting deleteSale for order ID: ${id}, shop ID: ${shopId}`);
 
-  // 1. Fetch items
+  // 1. Fetch items with tenant check
   const { data: items, error: itemsError } = await supabase
     .from('sale_item')
     .select('*')
-    .eq('sale_id', id);
+    .eq('sale_id', id)
+    .eq('shop_id', shopId);
 
   if (itemsError) throw new Error(`Failed to fetch items: ${itemsError.message}`);
 
   // 2. Restore inventory
+  console.log("[orderService] Restoring stock level for deleted order items...");
   for (const item of (items || [])) {
     await increaseStock(item.product_id, shopId, item.quantity);
   }
@@ -698,7 +902,8 @@ export const deleteSale = async (id, shopId) => {
   const { error: deleteItemsError } = await supabase
     .from('sale_item')
     .delete()
-    .eq('sale_id', id);
+    .eq('sale_id', id)
+    .eq('shop_id', shopId);
 
   if (deleteItemsError) throw new Error(`Failed to delete sale items: ${deleteItemsError.message}`);
 
@@ -711,6 +916,7 @@ export const deleteSale = async (id, shopId) => {
 
   if (deleteSaleError) throw new Error(`Failed to delete sale: ${deleteSaleError.message}`);
 
+  console.log("[orderService] Order deletion completed successfully.");
   return { success: true };
 };
 

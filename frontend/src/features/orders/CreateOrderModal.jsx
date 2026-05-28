@@ -1,19 +1,47 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Modal from '../../components/ui/Modal';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { useOrders } from '../../contexts/OrderContext';
 import { useCustomers } from '../../contexts/CustomerContext';
 import { useInventory } from '../../contexts/InventoryContext';
+import { useAuth } from '../../contexts/AuthContext';
 
 const CreateOrderModal = ({ isOpen, onClose }) => {
   const { addOrder } = useOrders() || {};
   const { customers = [], updateCustomerStats } = useCustomers() || {};
   const { inventoryItems = [] } = useInventory() || {};
+  const { shop } = useAuth() || {};
   const [orderItems, setOrderItems] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     customer: '', date: '', variety: '', quantity: '', unit: 'bags', price: '', notes: ''
   });
+
+  const resetOrderForm = () => {
+    setFormData({
+      customer: '',
+      date: '',
+      variety: '',
+      quantity: '',
+      unit: 'bags',
+      price: '',
+      notes: ''
+    });
+    setOrderItems([]);
+    console.log("Order modal reset");
+    console.log("Cart cleared");
+    console.log("Fresh modal initialized");
+  };
+
+  useEffect(() => {
+    resetOrderForm();
+  }, [isOpen]);
+
+  const handleClose = () => {
+    resetOrderForm();
+    onClose();
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -63,6 +91,8 @@ const CreateOrderModal = ({ isOpen, onClose }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!formData.customer || formData.customer === "new") {
       alert("Please select a valid customer.");
       return;
@@ -72,34 +102,46 @@ const CreateOrderModal = ({ isOpen, onClose }) => {
       return;
     }
 
-    const payload = {
-      customer_id: formData.customer,
-      delivery_date: formData.date || new Date().toISOString().split('T')[0],
-      notes: formData.notes,
-      products: orderItems.map(i => ({
-        product_id: i.id,
-        quantity: i.quantity,
-        unit: i.unit,
-        price_per_unit: i.price,
-        tax_percentage: 5
-      }))
-    };
+    setIsSubmitting(true);
 
-    await addOrder(payload);
-    onClose();
+    try {
+      const payload = {
+        shop_id: shop?.id || localStorage.getItem('shopId'),
+        customer_id: formData.customer,
+        delivery_date: formData.date || new Date().toISOString().split('T')[0],
+        notes: formData.notes,
+        items: orderItems.map(i => ({
+          product_id: i.id,
+          quantity: i.quantity,
+          unit: i.unit,
+          price_per_unit: i.price,
+          tax_percentage: 5
+        }))
+      };
+
+      await addOrder(payload);
+      resetOrderForm();
+      onClose();
+    } catch (error) {
+      console.error("Order creation failed:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const footer = (
     <>
-      <Button variant="ghost" onClick={onClose} type="button">Cancel</Button>
-      <Button variant="primary" onClick={handleSubmit} type="button" disabled={isStockInsufficient}>Create Order</Button>
+      <Button variant="ghost" onClick={handleClose} type="button" disabled={isSubmitting}>Cancel</Button>
+      <Button variant="primary" onClick={handleSubmit} type="button" disabled={isStockInsufficient || isSubmitting}>
+        {isSubmitting ? "Creating..." : "Create Order"}
+      </Button>
     </>
   );
 
   return (
     <Modal 
       isOpen={isOpen} 
-      onClose={onClose} 
+      onClose={handleClose} 
       title="Create New Order" 
       size="lg"
       footer={footer}

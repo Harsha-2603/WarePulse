@@ -1,5 +1,8 @@
 import supabase from '../config/supabaseClient.js';
 
+/**
+ * Helper to fetch or create a unit from a plain text name.
+ */
 const getOrCreateUnitId = async (unitString) => {
   if (!unitString) return null;
   console.log("Selected unit:", unitString);
@@ -8,8 +11,8 @@ const getOrCreateUnitId = async (unitString) => {
   const { data: existing } = await supabase
     .from('unit')
     .select('id')
-    .ilike('unit_name', unitString)
-    .single();
+    .ilike('unit_name', unitString.trim())
+    .maybeSingle();
 
   if (existing) {
     console.log("Existing unit found:", existing);
@@ -20,11 +23,11 @@ const getOrCreateUnitId = async (unitString) => {
   const { data: existingBySymbol } = await supabase
     .from('unit')
     .select('id')
-    .ilike('symbol', unitString)
-    .single();
+    .ilike('symbol', unitString.trim())
+    .maybeSingle();
 
   if (existingBySymbol) {
-    console.log("Existing unit found:", existingBySymbol);
+    console.log("Existing unit found by symbol:", existingBySymbol);
     return existingBySymbol.id;
   }
 
@@ -32,8 +35,8 @@ const getOrCreateUnitId = async (unitString) => {
   const { data: created, error } = await supabase
     .from('unit')
     .insert([{ 
-      unit_name: unitString, 
-      symbol: unitString.toLowerCase()
+      unit_name: unitString.trim(), 
+      symbol: unitString.trim().toLowerCase()
     }])
     .select()
     .single();
@@ -47,6 +50,27 @@ const getOrCreateUnitId = async (unitString) => {
   return created.id;
 };
 
+/**
+ * Relational validation.
+ * Validates unit_id exists.
+ */
+const validateProductRelations = async (shopId, unitId) => {
+  if (unitId) {
+    const { data: unitExists, error: unitError } = await supabase
+      .from('unit')
+      .select('id')
+      .eq('id', unitId)
+      .maybeSingle();
+
+    if (unitError || !unitExists) {
+      throw new Error(`Invalid unit_id: The specified unit does not exist.`);
+    }
+  }
+};
+
+/**
+ * Fetch all products, joining unit table.
+ */
 export const getAllProducts = async (shopId) => {
   if (!shopId) {
     throw new Error('shopId is required');
@@ -54,26 +78,42 @@ export const getAllProducts = async (shopId) => {
 
   const { data, error } = await supabase
     .from('product')
-    .select(`*, inventory(quantity_available), unit(unit_name, symbol)`)
+    .select(`*, inventory(quantity_available), unit:unit_id (id, unit_name, symbol)`)
     .eq('shop_id', shopId);
 
   if (error) {
     throw new Error(`Failed to fetch products: ${error.message}`);
   }
 
-  console.log('[getAllProducts] Response mapping joined inventory data');
   return data.map(item => {
     const stock = Array.isArray(item.inventory) ? item.inventory[0]?.quantity_available : item.inventory?.quantity_available;
-    const unit = Array.isArray(item.unit) ? item.unit[0] : item.unit;
+    const unit = item.unit;
+
+    const { unit: _, inventory: __, ...rest } = item;
     const finalItem = { 
-      ...item, 
+      ...rest, 
       stock_quantity: stock || 0,
-      unit: unit?.symbol || unit?.unit_name || ''
+      unit_name: unit?.unit_name || '',
+      unit: unit?.symbol || unit?.unit_name || '',
+      vendor_name: item.vendor_name || ''
     };
-    delete finalItem.inventory;
-    delete finalItem.unit_relation;
     return finalItem;
   });
+};
+
+/**
+ * Fetch all units ordered by name.
+ */
+export const getAllUnits = async () => {
+  const { data, error } = await supabase
+    .from('unit')
+    .select('*')
+    .order('unit_name', { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to fetch units: ${error.message}`);
+  }
+  return data;
 };
 
 const sanitizeProductData = (data) => {
@@ -82,10 +122,6 @@ const sanitizeProductData = (data) => {
 
   if (data.product_name !== undefined || data.name !== undefined) {
     payload.product_name = data.product_name || data.name;
-  }
-  
-  if (data.vendor_name !== undefined || data.supplier !== undefined) {
-    payload.vendor_name = data.vendor_name || data.supplier || null;
   }
 
   if (data.purchase_price !== undefined || data.purchasePrice !== undefined) {
@@ -114,6 +150,14 @@ const sanitizeProductData = (data) => {
     payload.unit_id = unit_id;
   }
 
+
+
+  // vendor_name plain text only!
+  const vendor_name = data.vendor_name || data.vendor || data.supplier || data.vendorName;
+  if (vendor_name !== undefined) {
+    payload.vendor_name = vendor_name ? String(vendor_name).trim() : null;
+  }
+
   console.log('[sanitizeProductData] Sanitized payload:', payload);
   return payload;
 };
@@ -121,11 +165,30 @@ const sanitizeProductData = (data) => {
 export const createProduct = async (data) => {
   console.log('[createProduct] Incoming Request payload:', data);
   
-  const unit_id = await getOrCreateUnitId(data.unit || data.unit_id || data.unitId);
-  console.log("Saved unit_id:", unit_id);
+  const shopId = data.shop_id;
+  if (!shopId) {
+    throw new Error('shop_id is required');
+  }
+
+  // Resolve Unit UUID
+  let unit_id = data.unit_id || data.unitId;
+  const unitText = data.unit;
+  if (!unit_id && unitText) {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(unitText)) {
+      unit_id = unitText;
+    } else {
+      unit_id = await getOrCreateUnitId(unitText);
+    }
+  }
+
+  const vendorText = data.vendor || data.vendor_name || data.supplier || data.vendorName;
+
+  // Validate relationships
+  await validateProductRelations(shopId, unit_id);
 
   const sanitizedData = sanitizeProductData(data);
   if (unit_id) sanitizedData.unit_id = unit_id;
+  if (vendorText) sanitizedData.vendor_name = String(vendorText).trim();
   
   const { product_name, shop_id, selling_price } = sanitizedData;
 
@@ -139,7 +202,7 @@ export const createProduct = async (data) => {
     .select('id')
     .eq('shop_id', shop_id)
     .ilike('product_name', product_name)
-    .single();
+    .maybeSingle();
 
   if (existingProduct) {
     throw new Error(`A product with the name "${product_name}" already exists in your shop.`);
@@ -172,10 +235,8 @@ export const createProduct = async (data) => {
     throw new Error(`Failed to initialize inventory: ${inventoryError.message}`);
   }
 
-  // Attach stock back to the returned object so frontend state stays accurate
-  createdProduct.stock_quantity = stock_quantity;
-
-  return createdProduct;
+  // Fetch fully joined created product for UI consistency
+  return getProductById(createdProduct.id, shop_id);
 };
 
 export const getProductById = async (id, shopId) => {
@@ -185,7 +246,7 @@ export const getProductById = async (id, shopId) => {
 
   const { data, error } = await supabase
     .from('product')
-    .select(`*, inventory(quantity_available), unit(unit_name, symbol)`)
+    .select(`*, inventory(quantity_available), unit:unit_id (id, unit_name, symbol)`)
     .eq('id', id)
     .eq('shop_id', shopId)
     .single();
@@ -195,12 +256,18 @@ export const getProductById = async (id, shopId) => {
   }
 
   const stock = Array.isArray(data.inventory) ? data.inventory[0]?.quantity_available : data.inventory?.quantity_available;
-  const unit = Array.isArray(data.unit) ? data.unit[0] : data.unit;
-  data.stock_quantity = stock || 0;
-  data.unit = unit?.symbol || unit?.unit_name || '';
-  delete data.inventory;
+  const unit = data.unit;
 
-  return data;
+  const { unit: _, inventory: __, ...rest } = data;
+  const finalProduct = {
+    ...rest,
+    stock_quantity: stock || 0,
+    unit_name: unit?.unit_name || '',
+    unit: unit?.symbol || unit?.unit_name || '',
+    vendor_name: data.vendor_name || ''
+  };
+
+  return finalProduct;
 };
 
 export const updateProduct = async (id, shopId, data) => {
@@ -209,12 +276,26 @@ export const updateProduct = async (id, shopId, data) => {
     throw new Error('id and shopId are required');
   }
 
-  const unit_id = await getOrCreateUnitId(data.unit || data.unit_id || data.unitId);
-  console.log("Saved unit_id:", unit_id);
+  // Resolve Unit UUID
+  let unit_id = data.unit_id || data.unitId;
+  const unitText = data.unit;
+  if (!unit_id && unitText) {
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(unitText)) {
+      unit_id = unitText;
+    } else {
+      unit_id = await getOrCreateUnitId(unitText);
+    }
+  }
+
+  const vendorText = data.vendor || data.vendor_name || data.supplier || data.vendorName;
+
+  // Validate relationships
+  await validateProductRelations(shopId, unit_id);
 
   const sanitizedData = sanitizeProductData(data);
   delete sanitizedData.shop_id; // Never overwrite shop_id in DB during updates!
   if (unit_id) sanitizedData.unit_id = unit_id;
+  if (vendorText !== undefined) sanitizedData.vendor_name = vendorText ? String(vendorText).trim() : null;
 
   console.log("Final product payload:", sanitizedData);
 
@@ -242,11 +323,9 @@ export const updateProduct = async (id, shopId, data) => {
 
   if (inventoryError) {
     console.error('[updateProduct] Failed to update inventory:', inventoryError);
-    // Don't completely fail the request if just inventory update fails, but log it.
   }
 
-  updatedProduct.stock_quantity = stock_quantity;
-  return updatedProduct;
+  return getProductById(id, shopId);
 };
 
 export const deleteProduct = async (id, shopId) => {
@@ -265,8 +344,6 @@ export const deleteProduct = async (id, shopId) => {
 
   if (inventoryError) {
     console.error('[deleteProduct] Failed to delete inventory:', inventoryError);
-  } else {
-    console.log("Inventory delete success");
   }
 
   console.log("Deleting sale_item rows:", productId);
@@ -277,8 +354,6 @@ export const deleteProduct = async (id, shopId) => {
 
   if (saleItemError) {
     console.error('[deleteProduct] Failed to delete sale items:', saleItemError);
-  } else {
-    console.log("Sale item delete success");
   }
 
   console.log("Deleting final product row:", productId);
@@ -292,8 +367,5 @@ export const deleteProduct = async (id, shopId) => {
     throw new Error(`Failed to delete product: ${error.message}`);
   }
   
-  console.log("Product delete success");
-  console.log("Final delete completed");
-
   return { success: true, deletedId: productId };
 };
